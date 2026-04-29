@@ -13,7 +13,6 @@ A short, opinionated design for running **Windows Admin Center (WAC)** at scale 
 ## What it covers
 
 - **Recommended topology** — a two-tier pattern: regional HA WAC for daily use, plus a per-site break-glass WAC for WAN/ER outages and OT-mandated local-only operations.
-- **Why WAC-in-Azure-VM is not recommended** for Azure Local at scale, with a pragmatic migration path.
 - **Reference architecture** diagrams (global, single-region, port/protocol, decision tree, break-glass runbook).
 - **Production** (HA failover-cluster) and **Dev/Test** (single VM) build patterns.
 - **Network, firewall and OT requirements** with explicit port and FQDN tables.
