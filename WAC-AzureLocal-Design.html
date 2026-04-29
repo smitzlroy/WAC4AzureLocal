@@ -145,14 +145,14 @@
       <p>Few servers, full local resilience, ARM stays primary, OT-friendly.</p>
     </div>
     <div class="card">
-      <div class="pill warn">Current state — not recommended going forward</div>
-      <h3 style="margin-top:8px">WAC-in-Azure VM (today's pattern)</h3>
-      <p>A WAC gateway running in an Azure VM <em>can</em> reach Azure Local nodes over ExpressRoute / S2S VPN, but it places the management plane on the wrong side of the WAN. See <a href="#azurevm">§3.1</a> for the full rationale.</p>
+      <div class="pill warn">Valid pattern — weigh at scale</div>
+      <h3 style="margin-top:8px">WAC-in-Azure VM</h3>
+      <p>A supported and quick way to get started. As an estate grows multi-site and multi-region, several factors (latency, WAN dependency, network direction, blast radius) often favour an on-prem two-tier topology. See <a href="#azurevm">§3.1</a>.</p>
     </div>
     <div class="card">
-      <div class="pill bad">Not recommended today</div>
+      <div class="pill warn">Preview for Azure Local</div>
       <h3 style="margin-top:8px">WAC in Azure portal (service)</h3>
-      <p>Per Microsoft Learn, managing Azure Local cluster nodes via WAC in the Azure portal is documented as <em>preview</em>. Use only for opportunistic Arc-server tasks; do not design the operating model around it.</p>
+      <p>Per Microsoft Learn, managing Azure Local cluster nodes via WAC in the Azure portal is documented as <em>preview</em>. Useful for opportunistic Arc-server tasks today; revisit once GA and at feature parity with the on-prem gateway.</p>
     </div>
   </div>
 
@@ -256,45 +256,45 @@ flowchart TD
   classDef warn fill:#fff4e0,stroke:#b15c00,color:#5a2e00;
   </div>
 
-  <h3 id="azurevm">3.1 Why WAC-in-Azure VM is not recommended for Azure Local at scale</h3>
-  <p>This is the pattern currently in use. It works in normal weather; the problems are structural and surface during the exact failure modes a regulated manufacturing estate must plan for. The recommendation is to migrate Tier 1 to on-prem HA WAC and retain Azure VM access only as a transitional convenience.</p>
+  <h3 id="azurevm">3.1 When WAC-in-Azure VM may not be the best fit at scale</h3>
+  <p>Running WAC in an Azure VM is a fully supported pattern and a fast way to get started. As an estate grows to multiple sites and regions, several structural characteristics surface that can make an on-prem two-tier topology a better long-term fit. None of the points below are blockers — they are factors to weigh when planning beyond a pilot.</p>
   <table>
-    <thead><tr><th>Concern</th><th>Why it matters for Azure Local at a pharma site</th></tr></thead>
+    <thead><tr><th>Factor</th><th>Why it can matter at scale</th></tr></thead>
     <tbody>
       <tr>
-        <td><strong>1. WAN dependency for the management plane</strong></td>
-        <td>The whole point of WAC for Azure Local is to do things ARM cannot — typically <em>during an incident</em>. If the incident is (or coincides with) ExpressRoute / S2S degradation, an Azure-hosted WAC is unreachable precisely when it's needed. On-prem Tier 1 + Tier 2 break-glass keeps management local to the failure domain.</td>
+        <td><strong>1. Management plane shares the WAN's fate</strong></td>
+        <td>WAC for Azure Local is most needed for tasks ARM cannot perform — often during incidents. If an incident coincides with ExpressRoute / S2S degradation, an Azure-hosted gateway is unreachable. An on-prem Tier 1 (with a per-site Tier 2 break-glass) keeps management local to the failure domain.</td>
       </tr>
       <tr>
-        <td><strong>2. Latency on interactive WinRM / PowerShell sessions</strong></td>
-        <td>WAC operations are chatty PowerShell remoting + WMI calls between the gateway and the cluster nodes. Round-tripping every call from an Azure region back to a manufacturing site over ER adds tens to hundreds of ms per call; tools that issue many small calls (volume ops, cluster validate, live migration wizards) feel sluggish and time out under load.</td>
+        <td><strong>2. Latency on chatty WinRM / PowerShell sessions</strong></td>
+        <td>WAC operations are many small PowerShell remoting + WMI calls between the gateway and cluster nodes. Round-tripping each call from an Azure region back to a remote site adds tens to hundreds of ms; tools that issue many calls (volume operations, cluster validate, live-migration wizards) can feel sluggish or time out under load.</td>
       </tr>
       <tr>
-        <td><strong>3. Network direction is wrong for OT segmentation</strong></td>
-        <td>Azure-hosted WAC must initiate inbound-equivalent flows (WinRM 5985/5986, SMB 445, RPC ranges) from Azure into the site's management VLAN — the segment adjacent to OT. On-prem WAC keeps all of that east-west inside the site. OT/network teams are far more comfortable approving the on-prem pattern, and it aligns with the spirit of ISA/IEC 62443 zone separation.</td>
+        <td><strong>3. Direction of network flow</strong></td>
+        <td>Azure-hosted WAC initiates flows (WinRM 5985/5986, SMB 445, RPC ranges) <em>from</em> Azure <em>into</em> the site's management VLAN. On-prem WAC keeps that traffic east-west inside the site, which is generally easier for network and OT teams to approve and aligns with zone-separation principles (e.g. ISA/IEC 62443).</td>
       </tr>
       <tr>
-        <td><strong>4. Single shared WAC across many regions doesn't scale cleanly</strong></td>
-        <td>One Azure-hosted WAC managing US + UK + APAC clusters concentrates risk (one VM = one blast radius) and forces every operator session through one geography. The current operational pain you're seeing matches this pattern.</td>
+        <td><strong>4. One Azure WAC across many regions concentrates risk</strong></td>
+        <td>A single Azure-hosted gateway managing US + UK + APAC clusters means one VM = one blast radius and forces every operator session through one geography. Per-region HA WAC distributes that risk and shortens the round-trip.</td>
       </tr>
       <tr>
-        <td><strong>5. Authentication path complexity during Azure outages</strong></td>
-        <td>Azure-hosted WAC typically authenticates operators via Entra ID. During an Entra ID regional incident, the on-prem nodes are still healthy but the management UI is unreachable. On-prem Tier 1 can also use Entra ID, but Tier 2 falls back cleanly to local AD / break-glass accounts.</td>
+        <td><strong>5. Authentication path during an Azure-side incident</strong></td>
+        <td>Azure-hosted WAC typically authenticates via Entra ID. During an Entra ID regional event, on-prem nodes remain healthy but the management UI is unreachable. On-prem Tier 1 can still use Entra ID; Tier 2 falls back cleanly to local AD or break-glass accounts.</td>
       </tr>
       <tr>
-        <td><strong>6. Patching &amp; cert lifecycle is no easier in Azure</strong></td>
-        <td>The cited "easier to manage in Azure" benefit doesn't materially apply: WAC is still a Windows Server install with the same <code>.exe</code>, the same cert, and the same upgrade caveats (e.g. 2311 → 2410+ uninstall/reinstall) regardless of where the VM lives.</td>
+        <td><strong>6. Patching &amp; certificate lifecycle is similar either way</strong></td>
+        <td>WAC is the same Windows Server install regardless of where the VM lives — same <code>.exe</code>, same cert handling, same upgrade caveats (e.g. 2311 → 2410+ uninstall/reinstall on HA). Hosting in Azure does not materially simplify lifecycle.</td>
       </tr>
       <tr>
-        <td><strong>7. WAC-in-Azure-VM is not the same as "WAC in Azure portal"</strong></td>
-        <td>The Azure portal experience for managing Azure Local cluster nodes is documented as <em>preview</em> and is feature-incomplete versus a full WAC gateway. Don't conflate the two when evaluating the future direction.</td>
+        <td><strong>7. Don't conflate WAC-in-Azure-VM with WAC in Azure portal</strong></td>
+        <td>The Azure portal experience for managing Azure Local cluster nodes is documented as <em>preview</em> and is not yet at feature parity with a full WAC gateway. They are different things and should be evaluated separately.</td>
       </tr>
     </tbody>
   </table>
 
   <div class="callout ok">
-    <span class="tag">Pragmatic migration path</span>
-    <div>You don't need to delete the existing Azure WAC VM on day one. Suggested sequence: <strong>(1)</strong> stand up a Tier 1 HA WAC pair in one region as a pilot; <strong>(2)</strong> migrate that region's operators to it; <strong>(3)</strong> add Tier 2 break-glass at one site; <strong>(4)</strong> repeat per region; <strong>(5)</strong> retire the Azure WAC VM, or repurpose it as an admin jump host only.</div>
+    <span class="tag">Pragmatic adoption path</span>
+    <div>If you're already running WAC in an Azure VM, there's no need to retire it on day one. A typical sequence is: <strong>(1)</strong> stand up a Tier 1 HA WAC pair in one region as a pilot; <strong>(2)</strong> migrate that region's operators to it; <strong>(3)</strong> add a Tier 2 break-glass at one site; <strong>(4)</strong> repeat per region; <strong>(5)</strong> retire the Azure WAC VM, or repurpose it as an admin jump host.</div>
   </div>
 </section>
 
