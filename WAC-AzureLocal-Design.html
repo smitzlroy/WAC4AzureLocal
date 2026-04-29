@@ -192,51 +192,53 @@
 <!-- 3. DECISION MATRIX -->
 <section id="decision">
   <h2>3. Topology decision matrix</h2>
+  <p>Each pattern below is a valid Microsoft-supported way to deploy WAC. The right choice depends on the operating model, scale and resilience requirements. The <em>Best fit for</em> column reflects general guidance for an <strong>at-scale, multi-site Azure Local estate operated ARM-first</strong>; smaller or simpler estates may legitimately land on a different option.</p>
   <table>
     <thead>
-      <tr><th>Option</th><th>Local resilience (WAN loss)</th><th>OT segmentation fit</th><th>Server count (global)</th><th>Operational complexity</th><th>Verdict</th></tr>
+      <tr><th>Option</th><th>Local resilience (WAN loss)</th><th>OT / network segmentation fit</th><th>Server count (global)</th><th>Operational complexity</th><th>Best fit for</th></tr>
     </thead>
     <tbody>
       <tr>
         <td>1 WAC per Azure Local cluster</td>
         <td>Excellent</td><td>Excellent</td>
-        <td>Highest (1× clusters)</td><td>Sprawl; many patch/cert lifecycles</td>
-        <td><span class="pill bad">Rejected</span> — explicitly out of scope per the stated operating model; unnecessary given Tier 2.</td>
+        <td>Highest (1× clusters)</td><td>High — many patch / cert lifecycles</td>
+        <td><span class="pill warn">Niche</span> Sites with strict isolation that forbid <em>any</em> cross-site management traffic.</td>
       </tr>
       <tr>
         <td>Regional HA WAC only</td>
-        <td>None — site loses mgmt during WAN outage</td>
+        <td>Site loses management during a WAN/ER outage</td>
         <td>Partial</td>
         <td>Lowest (≈3 HA pairs)</td><td>Low</td>
-        <td><span class="pill warn">Insufficient</span> for a regulated, manufacturing-floor estate.</td>
+        <td><span class="pill warn">Limited</span> Estates where extended local-management outages during WAN loss are acceptable (e.g. non-regulated, non-production, or always-connected sites).</td>
       </tr>
       <tr>
         <td>Per-site HA WAC only</td>
         <td>Excellent</td><td>Excellent</td>
         <td>Very high (2× sites)</td><td>High</td>
-        <td><span class="pill warn">Overkill</span> given ARM-first ops model.</td>
+        <td><span class="pill warn">Specific</span> Single-site or small estates where a regional tier adds no value, or where every site already runs a hardened management cluster.</td>
       </tr>
       <tr>
         <td><strong>Two-tier: Regional HA + per-site break-glass</strong></td>
         <td>Excellent (Tier 2 activates on WAN loss)</td><td>Excellent</td>
         <td>≈3 HA pairs + 1 small VM per site (off by default)</td><td>Moderate</td>
-        <td><span class="pill ok">Recommended</span></td>
+        <td><span class="pill ok">Recommended</span> Multi-site, multi-region estates with disconnected-site resilience and OT segmentation requirements.</td>
       </tr>
       <tr>
-        <td>WAC-in-Azure VM as primary <em>(current state)</em></td>
-        <td>None — site loses mgmt during WAN/ER outage</td>
-        <td>Weak — mgmt traffic crosses corp WAN into the OT-adjacent VLAN</td>
+        <td>WAC-in-Azure VM as primary</td>
+        <td>Site loses management during a WAN/ER outage</td>
+        <td>Weak — management traffic crosses corp WAN into the site management VLAN</td>
         <td>Low</td><td>Low day-to-day, high under failure</td>
-        <td><span class="pill bad">Not recommended</span> — see <a href="#azurevm">§3.1</a>.</td>
+        <td><span class="pill warn">Transitional</span> Useful as a starting point or jump host; consider migrating to the two-tier pattern at scale. See <a href="#azurevm">§3.1</a>.</td>
       </tr>
       <tr>
         <td>WAC in Azure portal (service)</td>
-        <td>None</td><td>Weak</td>
+        <td>Depends on Azure connectivity</td><td>Weak</td>
         <td>Zero on-prem</td><td>Low</td>
-        <td><span class="pill warn">Preview</span> for Azure Local — do not architect around.</td>
+        <td><span class="pill warn">Preview (Azure Local)</span> Convenient for opportunistic Arc-server tasks today; revisit once GA and at feature parity with the on-prem gateway.</td>
       </tr>
     </tbody>
   </table>
+  <p class="footnote">All options above are documented Microsoft installation patterns (see Microsoft Learn references in §13). The recommendation reflects guidance for the operating model described in §1; tailor to your own environment before adoption.</p>
 
   <h3>Decision tree</h3>
   <div class="mermaid">
