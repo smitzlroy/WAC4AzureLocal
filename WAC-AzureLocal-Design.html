@@ -497,36 +497,43 @@ stateDiagram-v2
 
   <h3>5.1 Architecture</h3>
   <div class="mermaid">
-flowchart LR
-  subgraph AZ["&nbsp;:icon-azure: Azure subscription &mdash; control plane only&nbsp;"]
-    direction TB
-    EID[(":icon-entra: Microsoft Entra ID<br/>+ Conditional Access")]:::azure
-    ARM[":icon-arm: Azure Resource Manager<br/><b>primary control plane</b>"]:::azure
-    ARC[":icon-arc: Azure Arc<br/>+ Arc gateway"]:::azure
+flowchart TB
+  subgraph AZ[":icon-azure: Azure subscription &mdash; control plane only"]
+    direction LR
+    EID[":icon-entra: Entra ID + CA"]:::azure
+    ARM[":icon-arm: ARM"]:::azure
+    ARC[":icon-arc: Azure Arc + Arc gateway"]:::azure
   end
 
-  subgraph US["&nbsp;:icon-globe: Region: US&nbsp;"]
+  subgraph US[":icon-globe: Region: US"]
     direction TB
-    WUS[":icon-wac: <b>Tier 1</b> &mdash; HA WAC<br/>2-node failover cluster<br/><i>on-prem regional mgmt cluster</i>"]:::tier1
-    subgraph SUS["&nbsp;US sites&nbsp;"]
+    WUS[":icon-wac: Tier 1 &mdash; HA WAC pair"]:::tier1
+    subgraph SUS["US sites"]
+      direction LR
       C1[":icon-cluster: Azure Local cluster A"]:::cluster
       C2[":icon-cluster: Azure Local cluster B"]:::cluster
-      BGUS[":icon-warn: <b>Tier 2</b> break-glass<br/><i>off by default</i>"]:::tier2
+      BGUS[":icon-warn: Tier 2 break-glass"]:::tier2
     end
+    WUS --> C1
+    WUS --> C2
   end
 
-  subgraph UK["&nbsp;:icon-globe: Region: UK&nbsp;"]
-    WUK[":icon-wac: <b>Tier 1</b> &mdash; HA WAC"]:::tier1
-    subgraph SUK["&nbsp;UK sites&nbsp;"]
+  subgraph UK[":icon-globe: Region: UK"]
+    direction TB
+    WUK[":icon-wac: Tier 1 &mdash; HA WAC pair"]:::tier1
+    subgraph SUK["UK sites"]
+      direction LR
       C3[":icon-cluster: Azure Local cluster C"]:::cluster
-      BGUK[":icon-warn: <b>Tier 2</b> break-glass"]:::tier2
+      BGUK[":icon-warn: Tier 2 break-glass"]:::tier2
     end
+    WUK --> C3
   end
 
-  WUS --- C1 & C2
-  WUK --- C3
-  C1 & C2 & C3 -. "Arc + Arc gateway" .-> ARC
-  WUS & WUK -. "Entra ID auth (HTTPS)" .-> EID
+  C1 -. Arc .-> ARC
+  C2 -. Arc .-> ARC
+  C3 -. Arc .-> ARC
+  WUS -. Entra .-> EID
+  WUK -. Entra .-> EID
   ARM === ARC
 
   classDef azure   fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:1.5px;
@@ -535,7 +542,36 @@ flowchart LR
   classDef cluster fill:#fff,stroke:#5b6473,color:#1a1f2b,stroke-width:1px;
   </div>
 
-  <h3>5.2 Prerequisites</h3>
+  <h3>5.2 Where these VMs live</h3>
+  <p>Tier 1 in Pattern A is a 2-node Windows Server failover cluster. <strong>Customers usually do not want WAC running on the Azure Local clusters themselves</strong> &mdash; the management plane should not share a fate or RBAC scope with the workloads it manages. The hosting options below are listed in order of preference:</p>
+  <table>
+    <thead><tr><th>Where</th><th>Notes</th><th>Recommended for</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>1. Dedicated small management cluster</strong> per geo</td>
+        <td>Two physical hosts (or two existing Hyper-V / VMware hosts) in the regional datacenter, running a 2-node Windows Server failover cluster solely for the WAC HA pair (and other regional management workloads if desired). Separate hardware, separate AD OU, separate patch window from Azure Local.</td>
+        <td><span class="pill ok">Recommended</span> Production. Cleanest separation of concerns.</td>
+      </tr>
+      <tr>
+        <td><strong>2. On an existing on-prem virtualisation platform</strong></td>
+        <td>If the customer already runs a regional VMware / Hyper-V estate for management workloads (jump hosts, monitoring, etc.), host the two WAC VMs there. Use existing host-level HA + the Windows Server failover cluster inside the VMs for WAC HA.</td>
+        <td><span class="pill ok">Acceptable</span> When existing management infra is already standardised on.</td>
+      </tr>
+      <tr>
+        <td><strong>3. As guest VMs on a regional Azure Local cluster</strong> (not the same one being managed)</td>
+        <td>Possible if a separate "management" Azure Local instance exists in the region. Avoid placing Tier 1 on any cluster it is also responsible for managing &mdash; you don't want a faulty WAC operation to take out the platform hosting WAC.</td>
+        <td><span class="pill warn">Conditional</span> Only when a dedicated management Azure Local exists per region.</td>
+      </tr>
+      <tr>
+        <td><strong>On the Azure Local cluster being managed</strong></td>
+        <td>Tier 1 hosted as guest VMs on the same Azure Local cluster it manages.</td>
+        <td><span class="pill bad">Avoid</span> Couples management plane to the workload cluster's fate; use Tier 2 break-glass instead if that's the only option.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout"><span class="tag">Plain English</span><div>The two WAC HA VMs do not need to be on Azure Local. A pair of regular Windows Server hosts (physical or virtual) in your regional datacenter is the cleanest setup &mdash; treat the regional WAC cluster as you would any other shared management capability (jump hosts, monitoring collectors, AD).</div></div>
+
+  <h3>5.3 Prerequisites</h3>
   <ul class="tight">
     <li>2-node Windows Server failover cluster (Windows Server 2022 or 2025 recommended).</li>
     <li>One Cluster Shared Volume (CSV), ~10 GB, for WAC persistent data.</li>
@@ -545,7 +581,7 @@ flowchart LR
     <li>DNS A-record for the chosen client access point (e.g. <code>wac-eu.contoso.local</code>) and an optional static IP for the cluster generic service.</li>
   </ul>
 
-  <h3>5.3 Sizing (starting point)</h3>
+  <h3>5.4 Sizing (starting point)</h3>
   <p>The HA install is <strong>active-passive</strong> per Microsoft Learn — one node serves traffic at a time and the other takes over on failure. Size each node for full peak load.</p>
   <table>
     <thead><tr><th>Resource</th><th>Per node</th><th>Notes</th></tr></thead>
@@ -559,7 +595,7 @@ flowchart LR
   </table>
   <p class="footnote">Microsoft Learn does not publish prescriptive vCPU/RAM minimums for the modernised gateway; values above are pragmatic starting points for review.</p>
 
-  <h3>5.4 Install the HA gateway</h3>
+  <h3>5.5 Install the HA gateway</h3>
   <p>From a node in the cluster, with the script and installer locally:</p>
 <pre><code>$parameters = @{
   ClusterStorage        = "C:\ClusterStorage\Volume1\Gateway"
@@ -576,10 +612,10 @@ flowchart LR
     <div>Direct upgrades from WAC HA <strong>2311 and older to 2410 and newer are not supported</strong> due to architectural changes in the modernised gateway. Plan an uninstall + reinstall when crossing that boundary.</div>
   </div>
 
-  <h3>5.5 Run modes</h3>
-  <p>Pattern A supports <strong>Always-on HA</strong> only — the failover cluster expects both nodes online for HA to function. See <a href="#runmodes">§4.2</a>.</p>
+  <h3>5.6 Run modes</h3>
+  <p>Pattern A supports <strong>Always-on HA</strong> only &mdash; the failover cluster expects both nodes online for HA to function. See <a href="#runmodes">&sect;4.2</a>.</p>
 
-  <h3>5.6 Trade-offs</h3>
+  <h3>5.7 Trade-offs</h3>
   <table>
     <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
     <tbody>
@@ -610,45 +646,53 @@ flowchart LR
 
   <h3>6.1 Architecture</h3>
   <div class="mermaid">
-flowchart LR
-  subgraph AZ["&nbsp;:icon-azure: Azure subscription&nbsp;"]
-    direction TB
-    EID[(":icon-entra: Microsoft Entra ID<br/>+ Conditional Access")]:::azure
-    ARM[":icon-arm: Azure Resource Manager"]:::azure
+flowchart TB
+  Op[":icon-operator: Operator (browser)"]:::actor
+  BAS[":icon-browser: Bastion / PAW-VPN / VDI"]:::azure
 
-    subgraph HUB["&nbsp;Hub VNet (per geo)&nbsp;"]
+  subgraph AZ[":icon-azure: Azure subscription"]
+    direction TB
+    subgraph HUB["Hub VNet (per geo)"]
       direction TB
-      ILB{{":icon-wac: ILB &mdash; WAC client access point<br/>e.g. wac-us.contoso.com"}}:::vip
-      VM1[":icon-wac: WAC VM 1<br/>Win Server 2022/2025"]:::tier1
-      VM2[":icon-wac: WAC VM 2<br/>Win Server 2022/2025"]:::tier1
-      KV[(":icon-storage: Key Vault<br/>cert + secrets")]:::azure
+      ILB[":icon-wac: ILB &mdash; WAC client access point"]:::vip
+      subgraph WACVMS["Availability Zones"]
+        direction LR
+        VM1[":icon-wac: WAC VM 1"]:::tier1
+        VM2[":icon-wac: WAC VM 2"]:::tier1
+      end
       ILB --> VM1
       ILB --> VM2
-      VM1 -. cert .- KV
-      VM2 -. cert .- KV
     end
-
-    BAS[":icon-browser: Bastion / PAW-VPN /<br/>VDI for operator access"]:::azure
-    BAS --> ILB
+    KV[":icon-storage: Key Vault"]:::azure
+    EID[":icon-entra: Entra ID + CA + MFA"]:::azure
+    ARM[":icon-arm: ARM"]:::azure
   end
 
-  subgraph SITES["&nbsp;:icon-globe: Managed sites (any region)&nbsp;"]
-    direction TB
+  subgraph SITES[":icon-globe: Managed sites (any region)"]
+    direction LR
     C1[":icon-cluster: Azure Local cluster A"]:::cluster
     C2[":icon-cluster: Azure Local cluster B"]:::cluster
-    BG[":icon-warn: <b>Tier 2</b> break-glass<br/><i>off by default</i>"]:::tier2
+    BG[":icon-warn: Tier 2 break-glass"]:::tier2
   end
 
-  HUB == "ExpressRoute / S2S VPN<br/>WinRM 5985/5986, SMB 445, RPC" ==> SITES
-  VM1 & VM2 -. "Entra auth + ARM" .-> EID
-  C1 & C2 -. "Arc + Arc gateway" .-> ARM
+  Op --> BAS
+  BAS --> ILB
+  VM1 -. cert .-> KV
+  VM2 -. cert .-> KV
+  VM1 -. Entra .-> EID
+  VM2 -. Entra .-> EID
+  HUB == "ExpressRoute / S2S VPN" ==> SITES
+  C1 -. Arc .-> ARM
+  C2 -. Arc .-> ARM
 
+  classDef actor   fill:#fff,stroke:#0072c6,color:#003b6f,stroke-width:2px;
   classDef azure   fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:1.5px;
   classDef tier1   fill:#e9f7ec,stroke:#1e8e3e,color:#0d4d1f,stroke-width:2px;
   classDef tier2   fill:#f3e9ff,stroke:#5b2d91,color:#2e0e63,stroke-width:1.5px,stroke-dasharray:4 3;
   classDef cluster fill:#fff,stroke:#5b6473,color:#1a1f2b,stroke-width:1px;
   classDef vip     fill:#fff4e0,stroke:#b15c00,color:#5a2e00,stroke-width:2px;
   </div>
+  <p class="footnote">East-west port detail (WinRM 5985/5986, SMB 445, RPC dynamic) is in &sect;4.3.1. The ER/S2S edge carries those flows from the WAC subnet into the site mgmt VLAN.</p>
 
   <h3>6.2 Prerequisites</h3>
   <ul class="tight">
@@ -727,23 +771,33 @@ flowchart LR
 
   <h3>7.1 Architecture</h3>
   <div class="mermaid">
-flowchart LR
-  Op([":icon-operator: <b>Operator</b><br/>:icon-browser: portal.azure.com"]):::actor -- "HTTPS 443<br/>Entra + MFA + CA" --> P[":icon-azure: Azure portal<br/>WAC blade (preview for Azure Local)"]:::azure
-  P --> ARM[":icon-arm: Azure Resource Manager"]:::azure
-  ARM --> ARC[":icon-arc: Azure Arc"]:::azure
-  ARC -. "Arc agent (outbound only)" .-> N1[":icon-cluster: Azure Local node 1"]:::cluster
-  ARC -. "Arc agent (outbound only)" .-> N2[":icon-cluster: Azure Local node 2"]:::cluster
-  ARC -. "Arc agent (outbound only)" .-> N3[":icon-cluster: Azure Local node 3"]:::cluster
-  BG[":icon-warn: <b>Tier 2</b> break-glass<br/><i>per site, off by default</i>"]:::tier2
-  N1 -.- BG
-  N2 -.- BG
-  N3 -.- BG
+flowchart TB
+  Op[":icon-operator: Operator (portal.azure.com)"]:::actor
+  P[":icon-azure: Azure portal &mdash; WAC blade"]:::azure
+  ARM[":icon-arm: Azure Resource Manager"]:::azure
+  ARC[":icon-arc: Azure Arc"]:::azure
+
+  subgraph SITE[":icon-globe: Site"]
+    direction LR
+    N1[":icon-cluster: Azure Local node 1"]:::cluster
+    N2[":icon-cluster: Azure Local node 2"]:::cluster
+    N3[":icon-cluster: Azure Local node 3"]:::cluster
+    BG[":icon-warn: Tier 2 break-glass"]:::tier2
+  end
+
+  Op -- "HTTPS + Entra + MFA + CA" --> P
+  P --> ARM
+  ARM --> ARC
+  N1 -. Arc agent outbound .-> ARC
+  N2 -. Arc agent outbound .-> ARC
+  N3 -. Arc agent outbound .-> ARC
 
   classDef actor   fill:#fff,stroke:#0072c6,color:#003b6f,stroke-width:2px;
   classDef azure   fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:1.5px;
   classDef cluster fill:#f3e9ff,stroke:#5b2d91,color:#2e0e63,stroke-width:1.5px;
   classDef tier2   fill:#fff4e0,stroke:#b15c00,color:#5a2e00,stroke-width:1.5px,stroke-dasharray:4 3;
   </div>
+  <p class="footnote">The Tier 2 break-glass VM (per <a href="#bg">&sect;4.1</a>) sits at the site alongside the cluster nodes &mdash; off by default, activated only if the portal path is unavailable.</p>
 
   <h3>7.2 Prerequisites</h3>
   <ul class="tight">
