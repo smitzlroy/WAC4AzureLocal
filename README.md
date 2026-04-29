@@ -1,6 +1,6 @@
 # WAC for Azure Local — Mid/Low-Level Design
 
-A short, opinionated design for running **Windows Admin Center (WAC)** at scale to manage **Azure Local** in a regulated, multi-site enterprise estate.
+A short, opinionated design for running **Windows Admin Center (WAC)** at scale to manage **Azure Local** across many sites and regions.
 
 ## What's in here
 
@@ -12,16 +12,20 @@ A short, opinionated design for running **Windows Admin Center (WAC)** at scale 
 
 ## What it covers
 
-- **Recommended topology** — a two-tier pattern: regional HA WAC for daily use, plus a per-site break-glass WAC for WAN/ER outages and OT-mandated local-only operations.
-- **Reference architecture** diagrams (global, single-region, port/protocol, decision tree, break-glass runbook).
-- **Production** (HA failover-cluster) and **Dev/Test** (single VM) build patterns.
-- **Network, firewall and OT requirements** with explicit port and FQDN tables.
-- **Security baseline**, **operations & lifecycle**, and **out-of-band / VM-console** guidance.
-- **Open questions** to drive the OT and network conversations.
+- **Three first-class deployment patterns** — pick the one that fits your operating model:
+  - **Pattern A** — On-prem HA WAC (regional)
+  - **Pattern B** — WAC in Azure VMs (regional HA, over ExpressRoute / S2S)
+  - **Pattern C** — WAC in Azure portal (service, currently preview for Azure Local)
+- **Per-site break-glass WAC (Tier 2)** — common to all three patterns; activated only when the regional Tier 1 is unreachable.
+- **Run modes** — Always-on / Cold-standby / JIT for cost-aware Pattern B deployments.
+- **Reference architecture** diagrams per pattern, plus a decision tree that lands on A / B / C.
+- **Dev/Test pattern** (single VM).
+- **Shared baseline** — network, firewall, OT, security, operations, lifecycle and out-of-band / VM-console guidance that applies to every pattern.
+- **Open questions** to drive the network and OT conversations.
 
 ## Sources
 
-Microsoft Learn only. Every reference is linked inline and listed in §13 of the document.
+Microsoft Learn only. Every reference is linked inline and listed in §10 of the document.
 
 ## How to view / share
 

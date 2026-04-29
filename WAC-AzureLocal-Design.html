@@ -70,10 +70,20 @@
   .pill.ok{color:var(--ok);border-color:var(--ok)}
   .pill.warn{color:var(--warn);border-color:var(--warn)}
   .pill.bad{color:var(--bad);border-color:var(--bad)}
+  .pill.sec{color:var(--sec);border-color:var(--sec)}
   .mermaid{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin:14px 0;overflow:auto}
   ul.tight li,ol.tight li{margin:2px 0}
   .footnote{color:var(--muted);font-size:.85rem}
   hr{border:none;border-top:1px solid var(--line);margin:28px 0}
+  .pattern-tag{display:inline-block;font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:6px;letter-spacing:.04em;margin-right:6px;vertical-align:middle}
+  .pattern-tag.a{background:#e9f7ec;color:#0d4d1f;border:1px solid #1e8e3e}
+  .pattern-tag.b{background:#e6f3ff;color:#003b6f;border:1px solid #0072c6}
+  .pattern-tag.c{background:#f3e9ff;color:#2e0e63;border:1px solid #5b2d91}
+  @media (prefers-color-scheme: dark){
+    .pattern-tag.a{background:#1f3a2a;color:#7ee787;border-color:#7ee787}
+    .pattern-tag.b{background:#0a4a7a;color:#4cc2ff;border-color:#4cc2ff}
+    .pattern-tag.c{background:#3a2a52;color:#c792ea;border-color:#c792ea}
+  }
   @media print{
     nav.toc{display:none}.layout{grid-template-columns:1fr;max-width:none;padding:0 12mm}
     .mermaid,.card,table{break-inside:avoid}
@@ -91,15 +101,12 @@
   <ol>
     <li><a href="#summary">Executive summary</a></li>
     <li><a href="#glossary">Terminology &amp; gateway-mode disambiguation</a></li>
-    <li><a href="#decision">Topology decision matrix</a></li>
-    <li><a href="#arch">Reference architecture</a></li>
-    <li><a href="#prod">Production pattern (HA WAC)</a></li>
+    <li><a href="#pick">Pick your pattern</a></li>
+    <li><a href="#shared">Shared baseline (applies to all patterns)</a></li>
+    <li><a href="#patternA">Pattern A — On-prem HA WAC (regional)</a></li>
+    <li><a href="#patternB">Pattern B — WAC in Azure VMs (regional HA)</a></li>
+    <li><a href="#patternC">Pattern C — WAC in Azure portal (service)</a></li>
     <li><a href="#dev">Dev/Test pattern</a></li>
-    <li><a href="#breakglass">Per-site break-glass WAC</a></li>
-    <li><a href="#network">Network, firewall &amp; OT requirements</a></li>
-    <li><a href="#security">Security baseline</a></li>
-    <li><a href="#ops">Operations &amp; lifecycle</a></li>
-    <li><a href="#console">VM console / out-of-band access</a></li>
     <li><a href="#openq">Open questions for the customer</a></li>
     <li><a href="#refs">References</a></li>
   </ol>
@@ -108,16 +115,16 @@
 <main>
 <header class="hero">
   <div class="eyebrow">Mid / Low-Level Design</div>
-  <h1>Windows Admin Center for Azure Local at Global Scale</h1>
-  <p class="lede">A pragmatic, Microsoft-aligned WAC topology for a regulated pharma manufacturing estate running many Azure Local instances per Azure subscription, optimised for ARM-first operations, OT segmentation, and disconnected-site resilience.</p>
+  <h1>Windows Admin Center for Azure Local at Scale</h1>
+  <p class="lede">Three first-class deployment patterns for Windows Admin Center (WAC) when managing many Azure Local instances across regions and sites. Pick the pattern that fits the operating model; the security, network, OT and lifecycle baseline is the same across all three.</p>
   <div class="meta">
     <span>Audience: Platform / Cloud / OT engineering</span>
     <span>Sources: Microsoft Learn only</span>
-    <span>Scope: Dev/Test &amp; Production</span>
+    <span>Scope: Production &amp; Dev/Test</span>
   </div>
   <table style="margin-top:18px;max-width:640px">
     <tbody>
-      <tr><th style="width:32%">Document version</th><td>0.9 — for customer review</td></tr>
+      <tr><th style="width:32%">Document version</th><td>1.0 — for customer review</td></tr>
       <tr><th>Date</th><td>April 2026</td></tr>
       <tr><th>Status</th><td>Draft for stakeholder review</td></tr>
       <tr><th>Author</th><td>&lt;Add author / Microsoft contact&gt;</td></tr>
@@ -130,49 +137,48 @@
 <section id="summary">
   <h2>1. Executive summary</h2>
   <div class="card">
-    <p><strong>Recommendation: a two-tier WAC topology.</strong></p>
-    <ul class="tight">
-      <li><strong>Tier 1 — Regional HA WAC</strong> (one HA pair per geo: e.g. US, UK, APAC). Active-passive failover-cluster install of Windows Admin Center, fronted by Microsoft Entra ID with Conditional Access &amp; MFA. This is the daily-driver for the rare cases where ARM cannot perform the task.</li>
-      <li><strong>Tier 2 — Per-site break-glass WAC</strong>. A single Windows Server VM on the site's existing management VLAN (not on the Azure Local cluster, not in Azure). Powered off by default; activated only when WAN/ExpressRoute to the regional WAC is unavailable, or when an OT control mandates fully-local management.</li>
-    </ul>
-    <p>This pattern preserves the stated objective of <em>as few WAC instances as possible</em> without trading away local-site resilience or OT isolation. It validates the "≈3 per region" hypothesis as <strong>Tier 1 only</strong>, with Tier 2 added as a documented break-glass capability.</p>
+    <p>Microsoft supports several ways to deploy WAC for managing Azure Local. This document presents the three patterns customers typically choose between, each at a regional scale (one HA pair or service surface per geography — never one WAC per cluster). All three include a per-site break-glass WAC for local-only operations during WAN or Azure outages.</p>
+    <p>Pick the pattern that aligns with your operating model and connectivity assumptions; the network, security, OT and lifecycle baseline in §4 applies to all three.</p>
   </div>
 
   <div class="grid cols-3" style="margin-top:14px">
     <div class="card">
-      <div class="pill ok">Recommended</div>
-      <h3 style="margin-top:8px">Two-tier (Tier 1 + Tier 2)</h3>
-      <p>Few servers, full local resilience, ARM stays primary, OT-friendly.</p>
+      <span class="pattern-tag a">Pattern A</span>
+      <h3 style="margin-top:8px">On-prem HA WAC (regional)</h3>
+      <p>HA WAC on a regional management cluster, per geo. Best fit when sites must keep full management during WAN or Azure outages and OT requires east-west-only management traffic.</p>
+      <p><a href="#patternA">Go to Pattern A →</a></p>
     </div>
     <div class="card">
-      <div class="pill warn">Valid pattern — weigh at scale</div>
-      <h3 style="margin-top:8px">WAC-in-Azure VM</h3>
-      <p>A supported and quick way to get started. As an estate grows multi-site and multi-region, several factors (latency, WAN dependency, network direction, blast radius) often favour an on-prem two-tier topology. See <a href="#azurevm">§3.1</a>.</p>
+      <span class="pattern-tag b">Pattern B</span>
+      <h3 style="margin-top:8px">WAC in Azure VMs (regional HA)</h3>
+      <p>HA WAC on Azure VMs per geo, reaching sites over ExpressRoute or S2S VPN. Best fit when an ARM-first operating model and minimal on-prem management footprint are the priority and private connectivity to every site already exists.</p>
+      <p><a href="#patternB">Go to Pattern B →</a></p>
     </div>
     <div class="card">
-      <div class="pill warn">Preview for Azure Local</div>
+      <span class="pattern-tag c">Pattern C</span>
       <h3 style="margin-top:8px">WAC in Azure portal (service)</h3>
-      <p>Per Microsoft Learn, managing Azure Local cluster nodes via WAC in the Azure portal is documented as <em>preview</em>. Useful for opportunistic Arc-server tasks today; revisit once GA and at feature parity with the on-prem gateway.</p>
+      <p>The in-portal WAC experience — currently in <strong>preview for Azure Local</strong> cluster nodes. Useful today for opportunistic Arc-server tasks; a candidate for primary use once GA and at feature parity with the on-prem gateway.</p>
+      <p><a href="#patternC">Go to Pattern C →</a></p>
     </div>
   </div>
 
-  <div class="callout sec">
-    <span class="tag">OT note</span>
-    <div>This design assumes the OT control being invoked is "site-local management must remain available with no WAN dependency". If the actual OT control is different (e.g. "no inbound from corp at all", "no Entra ID at the site", "no domain trust"), the Tier 2 build changes. See <a href="#openq">§12 Open questions</a>.</div>
+  <div class="callout">
+    <span class="tag">All patterns include</span>
+    <div>A <strong>per-site break-glass WAC</strong> (Tier 2): a small Windows Server VM at each site, powered off by default, activated only when WAN/ER to the regional WAC is unavailable or when an OT-approved local-only operation is required. See <a href="#bg">§4.1</a>.</div>
   </div>
 </section>
 
 <!-- 2. GLOSSARY -->
 <section id="glossary">
   <h2>2. Terminology &amp; gateway-mode disambiguation</h2>
-  <p>Three distinct things are commonly called "gateway" in this space and have been mixed in prior threads. Lock these definitions down before any further design discussion:</p>
+  <p>Three distinct things are commonly called "gateway" in this space; lock the definitions down before discussing topology:</p>
   <table>
     <thead><tr><th>Term</th><th>What it actually is</th><th>Where it lives</th></tr></thead>
     <tbody>
       <tr>
         <td><strong>WAC gateway server</strong></td>
-        <td>An installation mode of Windows Admin Center where the WAC <code>.exe</code> is installed on a Windows Server (or on a failover cluster for HA), and admins connect to it from a browser. This is what the HA deploy doc covers.</td>
-        <td>On-prem Windows Server (single VM or 2-node cluster).</td>
+        <td>An installation mode of Windows Admin Center where the WAC <code>.exe</code> is installed on a Windows Server (or on a failover cluster for HA), and admins connect to it from a browser. Used by Patterns A and B.</td>
+        <td>Windows Server (single VM or 2-node cluster), on-prem (Pattern A) or in Azure (Pattern B).</td>
       </tr>
       <tr>
         <td><strong>Azure Arc gateway for Azure Local</strong></td>
@@ -181,328 +187,156 @@
       </tr>
       <tr>
         <td><strong>WAC in Azure portal</strong></td>
-        <td>An Azure portal blade that lets you run a WAC-style UI against Arc-enabled servers / Azure Local nodes / Azure VMs without an inbound network path. Documented as <em>preview</em> for Azure Local cluster nodes.</td>
+        <td>An Azure portal blade that lets you run a WAC-style UI against Arc-enabled servers, Azure Local nodes, and Azure VMs without an inbound network path. Documented as <em>preview</em> for Azure Local cluster nodes. This is Pattern C.</td>
         <td>Azure portal (no on-prem server install).</td>
       </tr>
     </tbody>
   </table>
-  <div class="callout"><span class="tag">Plain English</span><div>WAC gateway = the box you install. Arc gateway = an Azure-side traffic concentrator. They solve different problems and can coexist.</div></div>
+
+  <h3>Other terms used in this document</h3>
+  <ul class="tight">
+    <li><strong>Tier 1</strong> — the regional, day-to-day management surface (Pattern A's HA pair, Pattern B's Azure VMs, or Pattern C's portal blade).</li>
+    <li><strong>Tier 2</strong> — the per-site break-glass WAC, common to all three patterns.</li>
+    <li><strong>ER</strong> — Azure ExpressRoute. <strong>S2S</strong> — Site-to-Site VPN.</li>
+    <li><strong>ILB</strong> — Azure Standard Internal Load Balancer.</li>
+    <li><strong>Run mode</strong> — how Tier 1 is operated: Always-on HA, Cold-standby (deallocated, started on demand), or Auto-shutdown nightly (Dev/Test only). See <a href="#runmodes">§4.2</a>.</li>
+    <li><strong>JIT (just-in-time) start</strong> — a Cold-standby variant where a runbook starts the deallocated VMs on operator request or alert.</li>
+  </ul>
+  <div class="callout"><span class="tag">Plain English</span><div>WAC gateway = the box you install. Arc gateway = an Azure-side traffic concentrator. WAC in Azure portal = a managed UI with no install. They are independent and can coexist.</div></div>
 </section>
 
-<!-- 3. DECISION MATRIX -->
-<section id="decision">
-  <h2>3. Topology decision matrix</h2>
-  <p>Each pattern below is a valid Microsoft-supported way to deploy WAC. The right choice depends on the operating model, scale and resilience requirements. The <em>Best fit for</em> column reflects general guidance for an <strong>at-scale, multi-site Azure Local estate operated ARM-first</strong>; smaller or simpler estates may legitimately land on a different option.</p>
+<!-- 3. PICK YOUR PATTERN -->
+<section id="pick">
+  <h2>3. Pick your pattern</h2>
+  <p>Each pattern below is a valid Microsoft-supported way to deploy WAC at regional scale. The right choice depends on connectivity assumptions, OT segmentation requirements and the desired split between on-prem and Azure footprint. None of the three is "wrong" — they are operating-model choices.</p>
+
+  <h3>3.1 Comparison</h3>
   <table>
     <thead>
-      <tr><th>Option</th><th>Local resilience (WAN loss)</th><th>OT / network segmentation fit</th><th>Server count (global)</th><th>Operational complexity</th><th>Best fit for</th></tr>
+      <tr>
+        <th>Dimension</th>
+        <th><span class="pattern-tag a">A</span> On-prem HA</th>
+        <th><span class="pattern-tag b">B</span> Azure VMs HA</th>
+        <th><span class="pattern-tag c">C</span> Azure portal</th>
+      </tr>
     </thead>
     <tbody>
       <tr>
-        <td>1 WAC per Azure Local cluster</td>
-        <td>Excellent</td><td>Excellent</td>
-        <td>Highest (1× clusters)</td><td>High — many patch / cert lifecycles</td>
-        <td><span class="pill warn">Niche</span> Sites with strict isolation that forbid <em>any</em> cross-site management traffic.</td>
+        <td>Tier 1 location</td>
+        <td>Regional on-prem mgmt cluster</td>
+        <td>Azure VMs per geo (HA pair behind ILB)</td>
+        <td>Azure portal (no Tier 1 footprint)</td>
       </tr>
       <tr>
-        <td>Regional HA WAC only</td>
-        <td>Site loses management during a WAN/ER outage</td>
-        <td>Partial</td>
-        <td>Lowest (≈3 HA pairs)</td><td>Low</td>
-        <td><span class="pill warn">Limited</span> Estates where extended local-management outages during WAN loss are acceptable (e.g. non-regulated, non-production, or always-connected sites).</td>
+        <td>Connectivity prerequisite</td>
+        <td>Site mgmt VLAN routing only</td>
+        <td>ExpressRoute or S2S VPN to every managed site</td>
+        <td>Sites Arc-enabled and able to reach Azure</td>
       </tr>
       <tr>
-        <td>Per-site HA WAC only</td>
-        <td>Excellent</td><td>Excellent</td>
-        <td>Very high (2× sites)</td><td>High</td>
-        <td><span class="pill warn">Specific</span> Single-site or small estates where a regional tier adds no value, or where every site already runs a hardened management cluster.</td>
+        <td>Behaviour during WAN / Azure outage</td>
+        <td>Tier 1 unaffected; sites still managed</td>
+        <td>Tier 1 unreachable; Tier 2 takes over per site</td>
+        <td>Tier 1 unreachable; Tier 2 takes over per site</td>
       </tr>
       <tr>
-        <td><strong>Two-tier: Regional HA + per-site break-glass</strong></td>
-        <td>Excellent (Tier 2 activates on WAN loss)</td><td>Excellent</td>
-        <td>≈3 HA pairs + 1 small VM per site (off by default)</td><td>Moderate</td>
-        <td><span class="pill ok">Recommended</span> Multi-site, multi-region estates with disconnected-site resilience and OT segmentation requirements.</td>
+        <td>OT / segmentation profile</td>
+        <td>Mgmt traffic stays east-west inside the site</td>
+        <td>Mgmt traffic enters site over private circuit from Azure</td>
+        <td>Mgmt via Arc agents; no inbound flow to site</td>
       </tr>
       <tr>
-        <td>WAC-in-Azure VM as primary</td>
-        <td>Site loses management during a WAN/ER outage</td>
-        <td>Weak — management traffic crosses corp WAN into the site management VLAN</td>
-        <td>Low</td><td>Low day-to-day, high under failure</td>
-        <td><span class="pill warn">Transitional</span> Useful as a starting point or jump host; consider migrating to the two-tier pattern at scale. See <a href="#azurevm">§3.1</a>.</td>
+        <td>On-prem footprint</td>
+        <td>Highest (regional cluster + site break-glass)</td>
+        <td>Low (site break-glass only)</td>
+        <td>Lowest (site break-glass only)</td>
       </tr>
       <tr>
-        <td>WAC in Azure portal (service)</td>
-        <td>Depends on Azure connectivity</td><td>Weak</td>
-        <td>Zero on-prem</td><td>Low</td>
-        <td><span class="pill warn">Preview (Azure Local)</span> Convenient for opportunistic Arc-server tasks today; revisit once GA and at feature parity with the on-prem gateway.</td>
+        <td>Azure footprint</td>
+        <td>None for Tier 1</td>
+        <td>2× VMs + ILB + Key Vault per geo</td>
+        <td>Service only — no resources to manage</td>
+      </tr>
+      <tr>
+        <td>Cost profile (steady state)</td>
+        <td>CapEx-heavy (cluster), OpEx low</td>
+        <td>OpEx scales with run mode (see §4.2)</td>
+        <td>Service cost only; ARM operations counted</td>
+      </tr>
+      <tr>
+        <td>Run modes available</td>
+        <td>Always-on HA</td>
+        <td>Always-on / Cold-standby / JIT</td>
+        <td>N/A (managed service)</td>
+      </tr>
+      <tr>
+        <td>Supportability today</td>
+        <td>GA</td>
+        <td>GA</td>
+        <td><span class="pill sec">Preview</span> for Azure Local cluster nodes</td>
+      </tr>
+      <tr>
+        <td>Best fit when…</td>
+        <td>Sites must retain full mgmt during WAN/Azure loss; OT mandates east-west mgmt only</td>
+        <td>Private connectivity to every site exists; ARM-first ops; minimal on-prem mgmt VMs preferred</td>
+        <td>Zero on-prem mgmt VMs preferred; Arc-server day-to-day is enough until in-portal WAC reaches GA / parity</td>
       </tr>
     </tbody>
   </table>
-  <p class="footnote">All options above are documented Microsoft installation patterns (see Microsoft Learn references in §13). The recommendation reflects guidance for the operating model described in §1; tailor to your own environment before adoption.</p>
+  <p class="footnote">All three options are documented Microsoft installation patterns (see references in §10). The Tier 2 break-glass is identical across patterns — see <a href="#bg">§4.1</a>.</p>
 
-  <h3>Decision tree</h3>
+  <h3>3.2 Decision tree</h3>
   <div class="mermaid">
 flowchart TD
-  A([Operational task]):::start --> B{{Possible via Azure Resource Manager<br/>or Arc / azcmagent?}}:::decision
-  B -- Yes --> C[Use ARM / Bicep / IaC<br/><b>No WAC needed</b>]:::ok
-  B -- No  --> D{{Regional WAC reachable<br/>from the operator?}}:::decision
-  D -- Yes --> E[<b>Tier 1</b><br/>Regional HA WAC]:::tier1
-  D -- No  --> F{{WAN/ER loss<br/>or OT-mandated air-gap op?}}:::decision
-  F -- Yes --> G[<b>Tier 2</b><br/>Per-site break-glass WAC]:::tier2
-  F -- No  --> H[Investigate connectivity<br/>before falling back]:::warn
+  S([Operational task]):::start --> Q1{{Possible via ARM /<br/>Arc / azcmagent / IaC?}}:::decision
+  Q1 -- Yes --> ARM[Use ARM / Bicep / IaC<br/><b>No WAC needed</b>]:::ok
+  Q1 -- No  --> Q2{{Acceptable to depend on<br/>Azure connectivity for daily mgmt?}}:::decision
+  Q2 -- No  --> A[<b>Pattern A</b><br/>On-prem HA WAC]:::pa
+  Q2 -- Yes --> Q3{{Private connectivity ER/S2S<br/>to every managed site?}}:::decision
+  Q3 -- No  --> A
+  Q3 -- Yes --> Q4{{Need full WAC tool surface<br/>e.g. clusters, volumes, VMs?}}:::decision
+  Q4 -- Yes --> B[<b>Pattern B</b><br/>WAC in Azure VMs HA]:::pb
+  Q4 -- No  --> C[<b>Pattern C</b><br/>WAC in Azure portal<br/><i>preview for Azure Local</i>]:::pc
+
   classDef start fill:#0072c6,stroke:#003b6f,color:#fff,stroke-width:2px;
   classDef decision fill:#fff4e0,stroke:#b15c00,color:#5a2e00,stroke-width:1.5px;
   classDef ok fill:#e9f7ec,stroke:#1e8e3e,color:#0d4d1f,stroke-width:1.5px;
-  classDef tier1 fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:2px;
-  classDef tier2 fill:#f3e9ff,stroke:#5b2d91,color:#2e0e63,stroke-width:2px;
-  classDef warn fill:#fff4e0,stroke:#b15c00,color:#5a2e00;
+  classDef pa fill:#e9f7ec,stroke:#1e8e3e,color:#0d4d1f,stroke-width:2px;
+  classDef pb fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:2px;
+  classDef pc fill:#f3e9ff,stroke:#5b2d91,color:#2e0e63,stroke-width:2px;
   </div>
-
-  <h3 id="azurevm">3.1 When WAC-in-Azure VM may not be the best fit at scale</h3>
-  <p>Running WAC in an Azure VM is a fully supported pattern and a fast way to get started. As an estate grows to multiple sites and regions, several structural characteristics surface that can make an on-prem two-tier topology a better long-term fit. None of the points below are blockers — they are factors to weigh when planning beyond a pilot.</p>
-  <table>
-    <thead><tr><th>Factor</th><th>Why it can matter at scale</th></tr></thead>
-    <tbody>
-      <tr>
-        <td><strong>1. Management plane shares the WAN's fate</strong></td>
-        <td>WAC for Azure Local is most needed for tasks ARM cannot perform — often during incidents. If an incident coincides with ExpressRoute / S2S degradation, an Azure-hosted gateway is unreachable. An on-prem Tier 1 (with a per-site Tier 2 break-glass) keeps management local to the failure domain.</td>
-      </tr>
-      <tr>
-        <td><strong>2. Latency on chatty WinRM / PowerShell sessions</strong></td>
-        <td>WAC operations are many small PowerShell remoting + WMI calls between the gateway and cluster nodes. Round-tripping each call from an Azure region back to a remote site adds tens to hundreds of ms; tools that issue many calls (volume operations, cluster validate, live-migration wizards) can feel sluggish or time out under load.</td>
-      </tr>
-      <tr>
-        <td><strong>3. Direction of network flow</strong></td>
-        <td>Azure-hosted WAC initiates flows (WinRM 5985/5986, SMB 445, RPC ranges) <em>from</em> Azure <em>into</em> the site's management VLAN. On-prem WAC keeps that traffic east-west inside the site, which is generally easier for network and OT teams to approve and aligns with zone-separation principles (e.g. ISA/IEC 62443).</td>
-      </tr>
-      <tr>
-        <td><strong>4. One Azure WAC across many regions concentrates risk</strong></td>
-        <td>A single Azure-hosted gateway managing US + UK + APAC clusters means one VM = one blast radius and forces every operator session through one geography. Per-region HA WAC distributes that risk and shortens the round-trip.</td>
-      </tr>
-      <tr>
-        <td><strong>5. Authentication path during an Azure-side incident</strong></td>
-        <td>Azure-hosted WAC typically authenticates via Entra ID. During an Entra ID regional event, on-prem nodes remain healthy but the management UI is unreachable. On-prem Tier 1 can still use Entra ID; Tier 2 falls back cleanly to local AD or break-glass accounts.</td>
-      </tr>
-      <tr>
-        <td><strong>6. Patching &amp; certificate lifecycle is similar either way</strong></td>
-        <td>WAC is the same Windows Server install regardless of where the VM lives — same <code>.exe</code>, same cert handling, same upgrade caveats (e.g. 2311 → 2410+ uninstall/reinstall on HA). Hosting in Azure does not materially simplify lifecycle.</td>
-      </tr>
-      <tr>
-        <td><strong>7. Don't conflate WAC-in-Azure-VM with WAC in Azure portal</strong></td>
-        <td>The Azure portal experience for managing Azure Local cluster nodes is documented as <em>preview</em> and is not yet at feature parity with a full WAC gateway. They are different things and should be evaluated separately.</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="callout ok">
-    <span class="tag">Pragmatic adoption path</span>
-    <div>If you're already running WAC in an Azure VM, there's no need to retire it on day one. A typical sequence is: <strong>(1)</strong> stand up a Tier 1 HA WAC pair in one region as a pilot; <strong>(2)</strong> migrate that region's operators to it; <strong>(3)</strong> add a Tier 2 break-glass at one site; <strong>(4)</strong> repeat per region; <strong>(5)</strong> retire the Azure WAC VM, or repurpose it as an admin jump host.</div>
-  </div>
+  <p class="footnote">All paths assume a per-site break-glass WAC (Tier 2) is also in place — see <a href="#bg">§4.1</a>.</p>
 </section>
 
-<!-- 4. REFERENCE ARCHITECTURE -->
-<section id="arch">
-  <h2>4. Reference architecture</h2>
+<!-- 4. SHARED BASELINE -->
+<section id="shared">
+  <h2>4. Shared baseline (applies to all patterns)</h2>
+  <p>The content in this section is identical for Patterns A, B and C. Each pattern chapter (§5–§7) references back here.</p>
 
-  <h3>4.1 Global topology</h3>
-  <div class="mermaid">
-flowchart LR
-  subgraph AZ["&nbsp;:icon-azure: Azure subscription &mdash; single, global&nbsp;"]
-    direction TB
-    EID[(":icon-entra: Microsoft Entra ID<br/>+ Conditional Access")]:::azure
-    ARC[":icon-arc: Azure Arc<br/>+ Arc gateway resources"]:::azure
-    ARM[":icon-arm: Azure Resource Manager<br/><b>primary control plane</b>"]:::azure
-  end
+  <h3 id="bg">4.1 Per-site break-glass WAC (Tier 2)</h3>
+  <p>One small Windows Server VM per site, on the site's management VLAN — a regular workload VM, <em>not</em> a cluster node, <em>not</em> in Azure — and powered off by default. Activated only when the regional Tier 1 (Pattern A, B or C) is unreachable or when an OT-approved local-only operation is required.</p>
 
-  subgraph US["&nbsp;:icon-globe: Region: US (e.g. East US)&nbsp;"]
-    direction TB
-    WUS[":icon-wac: <b>Tier 1</b> &mdash; Regional HA WAC<br/>2-node failover cluster"]:::tier1
-    subgraph SUS["&nbsp;US sites&nbsp;"]
-      C1[":icon-cluster: Azure Local cluster A"]:::cluster
-      C2[":icon-cluster: Azure Local cluster B"]:::cluster
-      BGUS[":icon-warn: <b>Tier 2</b> break-glass WAC<br/><i>per site, off by default</i>"]:::tier2
-    end
-  end
-
-  subgraph UK["&nbsp;:icon-globe: Region: UK South&nbsp;"]
-    direction TB
-    WUK[":icon-wac: <b>Tier 1</b> &mdash; Regional HA WAC"]:::tier1
-    subgraph SUK["&nbsp;UK sites&nbsp;"]
-      C3[":icon-cluster: Azure Local cluster C"]:::cluster
-      BGUK[":icon-warn: <b>Tier 2</b> break-glass WAC"]:::tier2
-    end
-  end
-
-  subgraph AP["&nbsp;:icon-globe: Region: APAC (e.g. SE Asia)&nbsp;"]
-    direction TB
-    WAP[":icon-wac: <b>Tier 1</b> &mdash; Regional HA WAC"]:::tier1
-    subgraph SAP["&nbsp;APAC sites&nbsp;"]
-      C4[":icon-cluster: Azure Local cluster D"]:::cluster
-      C5[":icon-cluster: Azure Local cluster E"]:::cluster
-      BGAP[":icon-warn: <b>Tier 2</b> break-glass WAC"]:::tier2
-    end
-  end
-
-  WUS --- C1 & C2
-  WUK --- C3
-  WAP --- C4 & C5
-
-  C1 & C2 & C3 & C4 & C5 -. "Arc + Arc gateway" .-> ARC
-  WUS & WUK & WAP -. "Entra ID auth" .-> EID
-  ARM === ARC
-
-  classDef azure   fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:1.5px;
-  classDef tier1   fill:#e9f7ec,stroke:#1e8e3e,color:#0d4d1f,stroke-width:2px;
-  classDef tier2   fill:#f3e9ff,stroke:#5b2d91,color:#2e0e63,stroke-width:1.5px,stroke-dasharray:4 3;
-  classDef cluster fill:#fff,stroke:#5b6473,color:#1a1f2b,stroke-width:1px;
-  </div>
-
-  <h3>4.2 Single-region detail</h3>
-  <div class="mermaid">
-flowchart TB
-  Op([":icon-operator: <b>Operator</b><br/>:icon-browser: Edge / Chrome"]):::actor -- "HTTPS 443" --> VIP{{":icon-wac: WAC HA client access point<br/>e.g. wac-eu.contoso.local"}}:::vip
-  VIP --> N1[":icon-wac: WAC node 1<br/>Windows Server 2022/2025"]:::node
-  VIP --> N2[":icon-wac: WAC node 2<br/>Windows Server 2022/2025"]:::node
-  N1 --- CSV[(":icon-storage: CSV<br/>gateway data &asymp; 10 GB")]:::storage
-  N2 --- CSV
-  N1 & N2 -- "WinRM 5985/5986<br/>SMB 445 &middot; RPC &ge;5000" --> AL[":icon-cluster: Azure Local cluster nodes"]:::cluster
-  N1 & N2 -- "HTTPS 443 outbound" --> EID[(":icon-entra: Entra ID + Graph<br/>:icon-arm: management.azure.com")]:::azure
-  AL -. "Arc agents + Arc gateway" .-> AZ[(":icon-azure: Azure")]:::azure
-
-  classDef actor   fill:#fff,stroke:#0072c6,color:#003b6f,stroke-width:2px;
-  classDef vip     fill:#fff4e0,stroke:#b15c00,color:#5a2e00,stroke-width:2px;
-  classDef node    fill:#e9f7ec,stroke:#1e8e3e,color:#0d4d1f,stroke-width:1.5px;
-  classDef storage fill:#f7f9fc,stroke:#5b6473,color:#1a1f2b;
-  classDef cluster fill:#f3e9ff,stroke:#5b2d91,color:#2e0e63,stroke-width:1.5px;
-  classDef azure   fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:1.5px;
-  </div>
-
-  <h3>4.3 Port / protocol flow</h3>
-  <div class="mermaid">
-sequenceDiagram
-  autonumber
-  participant B as Browser (operator)
-  participant W as WAC HA gateway (VIP)
-  participant N as Azure Local node
-  participant A as Azure (Entra ID / ARM)
-  B->>W: HTTPS 443 (Entra ID + MFA)
-  W->>A: HTTPS 443 (token validation, Graph, ARM)
-  W->>N: WinRM HTTPS 5986 (preferred) or HTTP 5985
-  W->>N: SMB 445 (file ops, cluster validate)
-  W->>N: RPC dynamic ≥5000 (Failover Cluster, Hyper-V VMM)
-  N-->>W: PowerShell remoting / WMI responses
-  W-->>B: Rendered tool UI
-  </div>
-</section>
-
-<!-- 5. PRODUCTION -->
-<section id="prod">
-  <h2>5. Production pattern — Tier 1 HA WAC</h2>
-
-  <h3>5.1 Prerequisites</h3>
-  <ul class="tight">
-    <li>2-node Windows Server failover cluster (Windows Server 2022 or 2025 recommended).</li>
-    <li>One Cluster Shared Volume (CSV), ~10 GB, for WAC persistent data.</li>
-    <li>TLS certificate from a trusted CA, with the private key installed on <em>every</em> node; capture the thumbprint.</li>
-    <li>WAC HA scripts: <a href="https://aka.ms/WACHAScript">aka.ms/WACHAScript</a> (<code>Deploy-GatewayV2Ha.zip</code>).</li>
-    <li>WAC installer (<code>WindowsAdminCenter&lt;version&gt;.exe</code>) staged on a node.</li>
-    <li>DNS A-record for the chosen client access point (e.g. <code>wac-eu.contoso.local</code>) and an optional static IP for the cluster generic service.</li>
-  </ul>
-
-  <h3>5.2 Sizing (starting point)</h3>
-  <p>The HA install is <strong>active-passive</strong> per Microsoft Learn — one node serves traffic at a time and the other takes over on failure. This is not a load-sharing pair; size each node for full peak load.</p>
-  <table>
-    <thead><tr><th>Resource</th><th>Per node</th><th>Notes</th></tr></thead>
-    <tbody>
-      <tr><td>vCPU</td><td>4 (suggested starting point)</td><td>Modernised gateway is multi-process / micro-service; scale up for many concurrent admins.</td></tr>
-      <tr><td>Memory</td><td>8–16 GB (suggested)</td><td>Increase if many extensions are loaded.</td></tr>
-      <tr><td>OS disk</td><td>127 GB (suggested)</td><td>Standard Windows Server image.</td></tr>
-      <tr><td>CSV (shared)</td><td>≥ 10 GB</td><td>Per Microsoft Learn HA prerequisites.</td></tr>
-      <tr><td>Network</td><td>1× mgmt NIC (+ optional cluster NIC)</td><td>Same VLAN as the Azure Local management network or routed to it.</td></tr>
-    </tbody>
-  </table>
-  <p class="footnote">Microsoft Learn does not publish prescriptive vCPU/RAM minimums for the modernized gateway; values above are pragmatic starting points for review.</p>
-
-  <h3>5.3 Install the HA gateway</h3>
-  <p>From a node in the cluster, with the script and installer locally:</p>
-<pre><code>$parameters = @{
-  ClusterStorage        = "C:\ClusterStorage\Volume1\Gateway"
-  ClientAccessPoint     = "wac-eu"          # becomes https://wac-eu.&lt;domain&gt;
-  StaticAddress         = "10.10.0.50"      # optional
-  InstallerPath         = "C:\Installers\WindowsAdminCenter2511.exe"
-  CertificateThumbprint = "AA11BB22CC33DD44EE55FF66AA77BB88CC99DD00"
-}
-.\Deploy-GatewayV2Ha.Deploy.ps1 @parameters</code></pre>
-  <p>Validate and inspect with the sibling scripts (<code>Deploy-GatewayV2Ha.Validate.ps1</code>, <code>Deploy-GatewayV2Ha.Inspect.ps1</code>). To upgrade WAC later, re-run the same <code>Deploy-GatewayV2Ha.Deploy.ps1</code> with the new <code>-InstallerPath</code>.</p>
-
-  <div class="callout warn">
-    <span class="tag">Upgrade caveat</span>
-    <div>Direct upgrades from WAC HA <strong>2311 and older to 2410 and newer are not supported</strong> due to architectural changes in the modernized gateway. Plan an uninstall + reinstall when crossing that boundary. Source: Microsoft Learn (HA deploy guide).</div>
-  </div>
-
-  <h3>5.4 Identity, RBAC &amp; certificates</h3>
-  <ul class="tight">
-    <li><strong>Identity provider:</strong> Microsoft Entra ID for Tier 1, with Conditional Access + MFA + (optionally) PIM-eligible roles.</li>
-    <li><strong>Gateway roles:</strong> separate <em>gateway administrators</em> from <em>gateway users</em>.</li>
-    <li><strong>Target-node RBAC:</strong> use WAC's role-based access control (JEA-backed) so daily operators are not full local admins on Azure Local nodes.</li>
-    <li><strong>Certificates:</strong> use enterprise PKI; rotate via <code>-UpdateCertificate</code> on the same HA script. Avoid the <code>-generateSslCert</code> self-signed flag in production (60-day expiry).</li>
-  </ul>
-</section>
-
-<!-- 6. DEV/TEST -->
-<section id="dev">
-  <h2>6. Dev/Test pattern</h2>
-  <p>One Windows Server VM (<em>not</em> a domain controller — installing WAC on a DC is unsupported). Local AD or Entra ID for auth. Self-signed cert acceptable for short-lived labs.</p>
-  <div class="grid cols-2">
-    <div class="card">
-      <h3 style="margin-top:0">Build</h3>
-      <ol class="tight">
-        <li>Provision Windows Server 2022/2025 VM (4 vCPU / 8 GB).</li>
-        <li>Domain-join to the lab AD.</li>
-        <li>Download WAC installer from the Microsoft Evaluation Center.</li>
-        <li>Install in <em>gateway server</em> mode; bind to port 443.</li>
-        <li>Add lab admins to the <em>gateway administrators</em> group.</li>
-      </ol>
-    </div>
-    <div class="card">
-      <h3 style="margin-top:0">Parity vs. Production</h3>
-      <ul class="tight">
-        <li>Same WAC tools and extensions are available.</li>
-        <li>No HA / no failover — single point of failure (acceptable for lab).</li>
-        <li>Use a <em>different</em> Entra ID app registration than production.</li>
-        <li>Do not connect lab WAC to production Azure Local clusters.</li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<!-- 7. BREAK-GLASS -->
-<section id="breakglass">
-  <h2>7. Per-site break-glass WAC (Tier 2)</h2>
-  <p>One small Windows Server VM per manufacturing site, on the site's management VLAN (the same network segment from which the local Azure Local instance was deployed). It is a <strong>regular workload VM</strong> — <em>not</em> a cluster node, <em>not</em> hosted in Azure — and is <strong>powered off by default</strong>.</p>
-
-  <h3>7.1 Where it lives</h3>
-  <p>Two acceptable hosting options, in order of preference:</p>
+  <h4>4.1.1 Where it lives</h4>
   <ol class="tight">
-    <li><strong>As an Azure Local VM on the site's own cluster</strong> (recommended). It is a guest workload, not a cluster node. Survives WAN/ER loss because Azure Local continues to operate while disconnected from Azure (within the documented Arc grace period).</li>
-    <li><strong>On a dedicated small management host</strong> at the site, if one already exists. Useful if the site standard requires the management plane to be physically separate from the workload cluster.</li>
+    <li><strong>As an Azure Local VM on the site's own cluster</strong> (recommended). It is a guest workload, not a cluster node. Survives WAN / Azure loss because Azure Local continues to operate while disconnected from Azure (within the documented Arc grace period).</li>
+    <li><strong>On a dedicated small management host</strong> at the site, if one already exists. Useful where local standards require the management plane to be physically separate from the workload cluster.</li>
   </ol>
   <div class="callout warn"><span class="tag">Do not</span><div>Do not host Tier 2 in Azure, on the Azure Local cluster <em>nodes</em> themselves, on a domain controller, or on the OT process network.</div></div>
 
-  <h3>7.2 Build</h3>
+  <h4>4.1.2 Build</h4>
   <ul class="tight">
     <li>Windows Server 2022/2025, 2 vCPU / 4 GB / 127 GB. Domain-joined to the local site AD (or workgroup if AD is unavailable at the site).</li>
-    <li>WAC installed in <em>gateway server</em> mode on port 443. Enterprise CA cert preferred; otherwise self-signed with documented thumbprint trust on the operator workstation.</li>
-    <li>Local admin break-glass account documented in the site's existing privileged-access vault. Avoid hard dependency on Entra ID for the activation path.</li>
-    <li>Recommended: keep the WAC version within one release of the regional Tier 1 instances to minimise behavioural drift between tiers.</li>
+    <li>WAC installed in <em>gateway server</em> mode on port 443. Enterprise CA cert preferred; otherwise a self-signed cert with documented thumbprint trust on the operator workstation.</li>
+    <li>Local admin break-glass account documented in the site's privileged-access vault. Avoid a hard dependency on Entra ID for the activation path.</li>
+    <li>Keep the WAC version within one release of the regional Tier 1 to minimise behavioural drift between tiers.</li>
   </ul>
 
-  <h3>7.3 Activation runbook</h3>
+  <h4>4.1.3 Activation runbook</h4>
   <div class="mermaid">
 stateDiagram-v2
   [*] --> Idle
   Idle: <b>Idle</b>\n(VM powered off)
-  Triggered: <b>Triggered</b>\nWAN/ER loss or\nOT-approved local-only op
+  Triggered: <b>Triggered</b>\nWAN/ER loss, Azure outage,\nor OT-approved local-only op
   Activated: <b>Activated</b>\nSite engineer powers on VM
   Validated: <b>Validated</b>\nConnectivity check\n(WinRM 5985/5986, SMB 445)
   InUse: <b>In use</b>\nOperator signs in\n(local AD / break-glass)
@@ -516,26 +350,45 @@ stateDiagram-v2
   InUse --> Documented
   Documented --> ShutDown
   ShutDown --> Idle
-
-  classDef normal fill:#e6f3ff,stroke:#0072c6,color:#003b6f;
-  classDef alert  fill:#fff4e0,stroke:#b15c00,color:#5a2e00;
-  classDef active fill:#e9f7ec,stroke:#1e8e3e,color:#0d4d1f;
-  class Idle,ShutDown normal
-  class Triggered,Activated alert
-  class Validated,InUse,Documented active
   </div>
-
   <div class="callout sec">
     <span class="tag">Why not just leave it on?</span>
-    <div>Leaving Tier 2 always-on doubles the attack surface per site and introduces drift between Tier 1 and Tier 2 RBAC. Powered-off-by-default keeps the OT segment quiet under normal operation and forces a deliberate, logged activation.</div>
+    <div>Leaving Tier 2 always-on doubles the attack surface per site and introduces drift between Tier 1 and Tier 2 RBAC. Powered-off-by-default keeps the management segment quiet under normal operation and forces a deliberate, logged activation.</div>
   </div>
-</section>
 
-<!-- 8. NETWORK / FIREWALL / OT -->
-<section id="network">
-  <h2>8. Network, firewall &amp; OT requirements</h2>
+  <h3 id="runmodes">4.2 Run modes</h3>
+  <p>"Run mode" is how Tier 1 is operated day-to-day. Pattern A only supports Always-on HA (it is a clustered Windows install). Pattern B can use any of the three run modes; the choice is a cost-vs-RTO trade-off. Pattern C is a managed service and has no run mode in this sense.</p>
+  <table>
+    <thead><tr><th>Run mode</th><th>How it works</th><th>RTO</th><th>Cost shape</th><th>Applies to</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Always-on HA</strong></td>
+        <td>Both Tier 1 nodes are running 24×7. Active-passive failover under load balancer or cluster client access point.</td>
+        <td>Seconds (failover) — operator is unaffected by single-node loss.</td>
+        <td>Highest — full compute billed continuously.</td>
+        <td>Patterns A and B.</td>
+      </tr>
+      <tr>
+        <td><strong>Cold-standby / JIT</strong></td>
+        <td>Tier 1 VMs are deallocated when not in use. Started by a runbook (Logic App, Automation Account or ARM template) on operator request, alert, or scheduled window.</td>
+        <td>~5–10 minutes (boot + cert + extension warm-up).</td>
+        <td>Low — only storage billed at rest; compute billed only when started.</td>
+        <td>Pattern B only (Azure VMs can be deallocated; on-prem cluster nodes cannot meaningfully be).</td>
+      </tr>
+      <tr>
+        <td><strong>Auto-shutdown nightly</strong></td>
+        <td>VM auto-shuts down outside business hours, auto-starts on a schedule.</td>
+        <td>~5 minutes during shutdown window.</td>
+        <td>Low — only billed during business hours.</td>
+        <td>Dev/Test only — not appropriate for production Tier 1.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout"><span class="tag">JIT pattern outline</span><div>A typical JIT setup: an Azure Automation runbook (or Logic App) takes a parameter — a region — and starts the two Tier 1 VMs in that region; an operator triggers it via a self-service URL fronted by Entra ID + Conditional Access. After a configurable idle period the runbook deallocates them again. Microsoft Learn references for VM start/stop automation are listed in §10.</div></div>
 
-  <h3>8.1 WAC gateway → Azure Local cluster nodes (east-west, on-prem)</h3>
+  <h3 id="net">4.3 Network, firewall &amp; OT requirements</h3>
+
+  <h4>4.3.1 WAC gateway → Azure Local cluster nodes (east-west, on-prem)</h4>
   <p>Source: Microsoft Learn — <a href="https://learn.microsoft.com/en-us/azure/azure-local/concepts/firewall-requirements">Firewall requirements for Azure Local</a>.</p>
   <table>
     <thead><tr><th>Purpose</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Port</th></tr></thead>
@@ -550,9 +403,9 @@ stateDiagram-v2
       <tr><td>Hyper-V VM Management</td><td>Mgmt system</td><td>Hyper-V hosts</td><td>TCP</td><td>2179</td></tr>
     </tbody>
   </table>
-  <div class="callout"><span class="tag">Tip</span><div>If WAC is installed with the "Use WinRM over HTTPS only" option, allow only 5986 and skip 5985.</div></div>
+  <div class="callout"><span class="tag">Tip</span><div>If WAC is installed with the "Use WinRM over HTTPS only" option, allow only 5986 and skip 5985. In Pattern B these flows traverse the ER/S2S circuit from Azure into the site management VLAN; in Pattern A they stay east-west inside the site.</div></div>
 
-  <h3>8.2 WAC gateway → Internet (north-south)</h3>
+  <h4>4.3.2 WAC gateway → Internet (north-south)</h4>
   <p>Source: Microsoft Learn — <a href="https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/deploy/network-requirements">WAC network requirements</a>. All HTTPS / TCP 443.</p>
   <table>
     <thead><tr><th>FQDN</th><th>Purpose</th><th>When required</th></tr></thead>
@@ -568,7 +421,7 @@ stateDiagram-v2
     </tbody>
   </table>
 
-  <h3>8.3 Browser → WAC and browser → Azure</h3>
+  <h4>4.3.3 Browser → WAC and browser → Azure</h4>
   <table>
     <thead><tr><th>FQDN</th><th>Purpose</th><th>When required</th></tr></thead>
     <tbody>
@@ -581,8 +434,8 @@ stateDiagram-v2
     </tbody>
   </table>
 
-  <h3>8.4 Arc gateway for Azure Local — orthogonal to WAC</h3>
-  <p>The customer plans to use the <strong>Azure Arc gateway</strong> for Azure Local. This is unrelated to WAC topology but materially reduces the Azure-outbound endpoint list each Azure Local node needs. Key facts (Microsoft Learn):</p>
+  <h4>4.3.4 Arc gateway for Azure Local — orthogonal to WAC</h4>
+  <p>The <strong>Azure Arc gateway</strong> for Azure Local is unrelated to WAC topology but materially reduces the Azure-outbound endpoint list each Azure Local node needs. Key facts (Microsoft Learn):</p>
   <ul class="tight">
     <li>Enable Arc gateway <strong>during deployment</strong> of new Azure Local instances on version 2506+. It cannot be enabled post-deployment today.</li>
     <li>Arc gateway does <strong>not</strong> support TLS-terminating proxies.</li>
@@ -591,22 +444,20 @@ stateDiagram-v2
   </ul>
 
   <div class="callout bad">
-    <span class="tag">OT / network — must read</span>
-    <div><strong>HTTPS / TLS inspection is not supported</strong> for Azure Local outbound traffic. This includes Entra ID tenant restrictions v1. Coordinate with the OT/network team early — this is the single most common deployment blocker on regulated estates.</div>
+    <span class="tag">Network — must read</span>
+    <div><strong>HTTPS / TLS inspection is not supported</strong> for Azure Local outbound traffic. This includes Entra ID tenant restrictions v1. Coordinate with the network team early — this is the single most common deployment blocker on regulated estates.</div>
   </div>
 
-  <h3>8.5 OT segmentation pattern (recommended)</h3>
+  <h4>4.3.5 OT segmentation pattern (recommended)</h4>
   <ul class="tight">
-    <li>WAC gateway servers (Tier 1 and Tier 2) sit in the same management VLAN as the Azure Local cluster's management network — never on the OT process network and never on the storage / RDMA fabric.</li>
-    <li>Operator browser traffic enters via a documented jump path (e.g. PAW or VDI) → Tier 1 WAC VIP only.</li>
+    <li>WAC gateway servers (Tier 1 in any pattern, plus Tier 2) sit in the same management VLAN as the Azure Local cluster's management network — never on the OT process network and never on the storage / RDMA fabric.</li>
+    <li>Operator browser traffic enters via a documented jump path (PAW, VDI, or Bastion in Pattern B) → Tier 1 client access point only.</li>
     <li>Tier 2 has no inbound from corp WAN; only the local site PAW reaches it.</li>
-    <li>All east-west WAC→node traffic stays inside the site's mgmt VLAN; only Azure-outbound traffic (443) traverses the site firewall, ideally via the Arc gateway.</li>
+    <li>Pattern A: WAC→node traffic stays inside the site mgmt VLAN; only Azure-outbound (443) traverses the site firewall, ideally via the Arc gateway.</li>
+    <li>Pattern B: WAC→node traffic enters the site mgmt VLAN over the ER/S2S circuit — coordinate with the network team to scope the source to the Tier 1 VNet only.</li>
   </ul>
-</section>
 
-<!-- 9. SECURITY -->
-<section id="security">
-  <h2>9. Security baseline</h2>
+  <h3 id="sec">4.4 Security baseline</h3>
   <table>
     <thead><tr><th>Control</th><th>Setting</th></tr></thead>
     <tbody>
@@ -614,57 +465,384 @@ stateDiagram-v2
       <tr><td>Identity provider (Tier 2)</td><td>Local AD / local groups; documented break-glass accounts in privileged vault.</td></tr>
       <tr><td>Gateway access roles</td><td>Separate <em>gateway administrators</em> from <em>gateway users</em>.</td></tr>
       <tr><td>Target-node RBAC</td><td>WAC RBAC (JEA endpoint) — Administrators / Readers / Hyper-V Administrators built-in roles.</td></tr>
-      <tr><td>Certificates</td><td>Enterprise CA, private key on every HA node, rotated via <code>-UpdateCertificate</code>.</td></tr>
+      <tr><td>Certificates</td><td>Enterprise CA, private key on every HA node, rotated via <code>-UpdateCertificate</code>. In Pattern B, store certs in Azure Key Vault and reference from the VMs.</td></tr>
       <tr><td>Where WAC may NOT be installed</td><td>Domain controllers — unsupported per Microsoft Learn.</td></tr>
       <tr><td>Local management of self</td><td>Don't use WAC to manage the same server it's installed on.</td></tr>
       <tr><td>Auditing</td><td>WAC logging enabled; forward to SIEM (e.g. Microsoft Sentinel) via Windows Event Forwarding or AMA where supported.</td></tr>
     </tbody>
   </table>
-</section>
 
-<!-- 10. OPS -->
-<section id="ops">
-  <h2>10. Operations &amp; lifecycle</h2>
+  <h3 id="ops">4.5 Operations &amp; lifecycle</h3>
   <ul class="tight">
     <li><strong>Patching:</strong> WAC non-preview versions are supported until 30 days after the next non-preview release. Stay within one release of current.</li>
-    <li><strong>Version skew:</strong> 2311 → 2410+ requires uninstall + reinstall on HA. Plan a maintenance window.</li>
+    <li><strong>Version skew:</strong> 2311 → 2410+ requires uninstall + reinstall on HA. Plan a maintenance window. Applies to Patterns A and B.</li>
     <li><strong>Cluster Manager extension:</strong> ensure version <strong>≥ 5.2.6</strong> on every WAC instance before performing volume operations on Azure Local; otherwise update to WAC 2511 build 2.6.6.18 or higher (or use WAC-in-Azure-portal extension 0.76.0.0+). Source: WAC known-issues, April 2026 update.</li>
     <li><strong>Tier 2 drift control:</strong> quarterly job to power on each break-glass VM, patch, validate, power off. Track in change management.</li>
-    <li><strong>Backup:</strong> WAC HA stores config on the CSV — back up the CSV and the cert. Tier 2 is stateless enough that re-imaging is the recovery path.</li>
+    <li><strong>Backup:</strong> Pattern A — back up the CSV and the cert. Pattern B — protect via Azure Backup (VM-level) and Key Vault soft-delete on the cert. Tier 2 is stateless enough that re-imaging is the recovery path.</li>
   </ul>
-</section>
 
-<!-- 11. CONSOLE -->
-<section id="console">
-  <h2>11. VM console / out-of-band access</h2>
+  <h3 id="console">4.6 VM console / out-of-band access</h3>
   <p>WAC does <strong>not</strong> solve the "I need a console when WAC itself is broken" problem. Treat this as a separate, parallel capability and document it in the same runbook:</p>
   <ul class="tight">
     <li>OEM BMC (iDRAC / iLO / XClarity) on a dedicated, isolated mgmt VLAN, reachable only from a site PAW.</li>
     <li>Hardened jump host per site for serial-over-LAN / KVM access.</li>
-    <li>Document MFA and credential rotation for BMC accounts; these are typically the most-overlooked privileged accounts in pharma OT estates.</li>
+    <li>Document MFA and credential rotation for BMC accounts; these are typically the most-overlooked privileged accounts in regulated estates.</li>
   </ul>
 </section>
 
-<!-- 12. OPEN QUESTIONS -->
+<!-- 5. PATTERN A -->
+<section id="patternA">
+  <h2><span class="pattern-tag a">Pattern A</span> 5. On-prem HA WAC (regional)</h2>
+  <p>One HA WAC pair per geography (e.g. US, UK, APAC) running on a regional Windows Server failover cluster, with a per-site break-glass WAC at every site (§4.1).</p>
+
+  <h3>5.1 Architecture</h3>
+  <div class="mermaid">
+flowchart LR
+  subgraph AZ["&nbsp;:icon-azure: Azure subscription &mdash; control plane only&nbsp;"]
+    direction TB
+    EID[(":icon-entra: Microsoft Entra ID<br/>+ Conditional Access")]:::azure
+    ARM[":icon-arm: Azure Resource Manager<br/><b>primary control plane</b>"]:::azure
+    ARC[":icon-arc: Azure Arc<br/>+ Arc gateway"]:::azure
+  end
+
+  subgraph US["&nbsp;:icon-globe: Region: US&nbsp;"]
+    direction TB
+    WUS[":icon-wac: <b>Tier 1</b> &mdash; HA WAC<br/>2-node failover cluster<br/><i>on-prem regional mgmt cluster</i>"]:::tier1
+    subgraph SUS["&nbsp;US sites&nbsp;"]
+      C1[":icon-cluster: Azure Local cluster A"]:::cluster
+      C2[":icon-cluster: Azure Local cluster B"]:::cluster
+      BGUS[":icon-warn: <b>Tier 2</b> break-glass<br/><i>off by default</i>"]:::tier2
+    end
+  end
+
+  subgraph UK["&nbsp;:icon-globe: Region: UK&nbsp;"]
+    WUK[":icon-wac: <b>Tier 1</b> &mdash; HA WAC"]:::tier1
+    subgraph SUK["&nbsp;UK sites&nbsp;"]
+      C3[":icon-cluster: Azure Local cluster C"]:::cluster
+      BGUK[":icon-warn: <b>Tier 2</b> break-glass"]:::tier2
+    end
+  end
+
+  WUS --- C1 & C2
+  WUK --- C3
+  C1 & C2 & C3 -. "Arc + Arc gateway" .-> ARC
+  WUS & WUK -. "Entra ID auth (HTTPS)" .-> EID
+  ARM === ARC
+
+  classDef azure   fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:1.5px;
+  classDef tier1   fill:#e9f7ec,stroke:#1e8e3e,color:#0d4d1f,stroke-width:2px;
+  classDef tier2   fill:#f3e9ff,stroke:#5b2d91,color:#2e0e63,stroke-width:1.5px,stroke-dasharray:4 3;
+  classDef cluster fill:#fff,stroke:#5b6473,color:#1a1f2b,stroke-width:1px;
+  </div>
+
+  <h3>5.2 Prerequisites</h3>
+  <ul class="tight">
+    <li>2-node Windows Server failover cluster (Windows Server 2022 or 2025 recommended).</li>
+    <li>One Cluster Shared Volume (CSV), ~10 GB, for WAC persistent data.</li>
+    <li>TLS certificate from a trusted CA, with the private key installed on <em>every</em> node; capture the thumbprint.</li>
+    <li>WAC HA scripts: <a href="https://aka.ms/WACHAScript">aka.ms/WACHAScript</a> (<code>Deploy-GatewayV2Ha.zip</code>).</li>
+    <li>WAC installer (<code>WindowsAdminCenter&lt;version&gt;.exe</code>) staged on a node.</li>
+    <li>DNS A-record for the chosen client access point (e.g. <code>wac-eu.contoso.local</code>) and an optional static IP for the cluster generic service.</li>
+  </ul>
+
+  <h3>5.3 Sizing (starting point)</h3>
+  <p>The HA install is <strong>active-passive</strong> per Microsoft Learn — one node serves traffic at a time and the other takes over on failure. Size each node for full peak load.</p>
+  <table>
+    <thead><tr><th>Resource</th><th>Per node</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>vCPU</td><td>4 (suggested starting point)</td><td>Modernised gateway is multi-process; scale up for many concurrent admins.</td></tr>
+      <tr><td>Memory</td><td>8–16 GB (suggested)</td><td>Increase if many extensions are loaded.</td></tr>
+      <tr><td>OS disk</td><td>127 GB (suggested)</td><td>Standard Windows Server image.</td></tr>
+      <tr><td>CSV (shared)</td><td>≥ 10 GB</td><td>Per Microsoft Learn HA prerequisites.</td></tr>
+      <tr><td>Network</td><td>1× mgmt NIC (+ optional cluster NIC)</td><td>Same VLAN as the Azure Local management network or routed to it.</td></tr>
+    </tbody>
+  </table>
+  <p class="footnote">Microsoft Learn does not publish prescriptive vCPU/RAM minimums for the modernised gateway; values above are pragmatic starting points for review.</p>
+
+  <h3>5.4 Install the HA gateway</h3>
+  <p>From a node in the cluster, with the script and installer locally:</p>
+<pre><code>$parameters = @{
+  ClusterStorage        = "C:\ClusterStorage\Volume1\Gateway"
+  ClientAccessPoint     = "wac-eu"          # becomes https://wac-eu.&lt;domain&gt;
+  StaticAddress         = "10.10.0.50"      # optional
+  InstallerPath         = "C:\Installers\WindowsAdminCenter2511.exe"
+  CertificateThumbprint = "AA11BB22CC33DD44EE55FF66AA77BB88CC99DD00"
+}
+.\Deploy-GatewayV2Ha.Deploy.ps1 @parameters</code></pre>
+  <p>Validate and inspect with the sibling scripts (<code>Deploy-GatewayV2Ha.Validate.ps1</code>, <code>Deploy-GatewayV2Ha.Inspect.ps1</code>). To upgrade WAC later, re-run the same <code>Deploy-GatewayV2Ha.Deploy.ps1</code> with the new <code>-InstallerPath</code>.</p>
+
+  <div class="callout warn">
+    <span class="tag">Upgrade caveat</span>
+    <div>Direct upgrades from WAC HA <strong>2311 and older to 2410 and newer are not supported</strong> due to architectural changes in the modernised gateway. Plan an uninstall + reinstall when crossing that boundary.</div>
+  </div>
+
+  <h3>5.5 Run modes</h3>
+  <p>Pattern A supports <strong>Always-on HA</strong> only — the failover cluster expects both nodes online for HA to function. See <a href="#runmodes">§4.2</a>.</p>
+
+  <h3>5.6 Trade-offs</h3>
+  <table>
+    <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          <ul class="tight">
+            <li>Tier 1 is unaffected by WAN or Azure outages.</li>
+            <li>Management traffic stays east-west inside the site — easiest profile for OT and network teams to approve.</li>
+            <li>No Azure egress dependency for daily management.</li>
+          </ul>
+        </td>
+        <td>
+          <ul class="tight">
+            <li>Requires a regional management cluster (CapEx + ongoing patch / cert lifecycle).</li>
+            <li>Adds an on-prem failure domain to operate.</li>
+            <li>Run-mode flexibility limited to Always-on (no cold-standby option).</li>
+          </ul>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 6. PATTERN B -->
+<section id="patternB">
+  <h2><span class="pattern-tag b">Pattern B</span> 6. WAC in Azure VMs (regional HA)</h2>
+  <p>One HA WAC pair per geography running on Azure VMs, fronted by an Azure Standard Internal Load Balancer (ILB), reaching managed sites over ExpressRoute or Site-to-Site VPN. Per-site break-glass WAC at every site (§4.1).</p>
+
+  <h3>6.1 Architecture</h3>
+  <div class="mermaid">
+flowchart LR
+  subgraph AZ["&nbsp;:icon-azure: Azure subscription&nbsp;"]
+    direction TB
+    EID[(":icon-entra: Microsoft Entra ID<br/>+ Conditional Access")]:::azure
+    ARM[":icon-arm: Azure Resource Manager"]:::azure
+
+    subgraph HUB["&nbsp;Hub VNet (per geo)&nbsp;"]
+      direction TB
+      ILB{{":icon-wac: ILB &mdash; WAC client access point<br/>e.g. wac-us.contoso.com"}}:::vip
+      VM1[":icon-wac: WAC VM 1<br/>Win Server 2022/2025"]:::tier1
+      VM2[":icon-wac: WAC VM 2<br/>Win Server 2022/2025"]:::tier1
+      KV[(":icon-storage: Key Vault<br/>cert + secrets")]:::azure
+      ILB --> VM1
+      ILB --> VM2
+      VM1 -. cert .- KV
+      VM2 -. cert .- KV
+    end
+
+    BAS[":icon-browser: Bastion / PAW-VPN /<br/>VDI for operator access"]:::azure
+    BAS --> ILB
+  end
+
+  subgraph SITES["&nbsp;:icon-globe: Managed sites (any region)&nbsp;"]
+    direction TB
+    C1[":icon-cluster: Azure Local cluster A"]:::cluster
+    C2[":icon-cluster: Azure Local cluster B"]:::cluster
+    BG[":icon-warn: <b>Tier 2</b> break-glass<br/><i>off by default</i>"]:::tier2
+  end
+
+  HUB == "ExpressRoute / S2S VPN<br/>WinRM 5985/5986, SMB 445, RPC" ==> SITES
+  VM1 & VM2 -. "Entra auth + ARM" .-> EID
+  C1 & C2 -. "Arc + Arc gateway" .-> ARM
+
+  classDef azure   fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:1.5px;
+  classDef tier1   fill:#e9f7ec,stroke:#1e8e3e,color:#0d4d1f,stroke-width:2px;
+  classDef tier2   fill:#f3e9ff,stroke:#5b2d91,color:#2e0e63,stroke-width:1.5px,stroke-dasharray:4 3;
+  classDef cluster fill:#fff,stroke:#5b6473,color:#1a1f2b,stroke-width:1px;
+  classDef vip     fill:#fff4e0,stroke:#b15c00,color:#5a2e00,stroke-width:2px;
+  </div>
+
+  <h3>6.2 Prerequisites</h3>
+  <ul class="tight">
+    <li><strong>Private connectivity to every managed site</strong> — Azure ExpressRoute (private peering) or Site-to-Site VPN. Pattern B is not appropriate for sites reachable only over the public internet.</li>
+    <li>One hub VNet per geography hosting the Tier 1 WAC pair, with a dedicated subnet for the WAC VMs and a separate subnet for the ILB.</li>
+    <li>Azure Key Vault in the same region for the WAC TLS certificate and any service-principal secrets.</li>
+    <li>NSGs locking inbound to the WAC subnet to the operator-access subnet (Bastion / PAW-VPN / VDI) only.</li>
+    <li>DNS A-record for the WAC client access point (resolves to the ILB front-end IP).</li>
+    <li>Site firewall scoped to accept the WAC management flows (§4.3.1) sourced from the WAC subnet only.</li>
+  </ul>
+
+  <h3>6.3 Sizing (starting point)</h3>
+  <table>
+    <thead><tr><th>Resource</th><th>Per VM</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>SKU</td><td>D4s_v5 (4 vCPU / 16 GB)</td><td>Starting point; right-size based on operator concurrency.</td></tr>
+      <tr><td>OS disk</td><td>Premium SSD 127 GB</td><td>Standard Windows Server image.</td></tr>
+      <tr><td>NIC</td><td>1× private NIC in WAC subnet</td><td>No public IP. Accelerated networking on.</td></tr>
+      <tr><td>Availability</td><td>Availability Zones (one VM per zone)</td><td>Required for the platform SLA on the ILB front-end.</td></tr>
+      <tr><td>ILB</td><td>Standard, internal, zone-redundant</td><td>Health probe on TCP 443 to each VM.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>6.4 Build outline</h3>
+  <ol class="tight">
+    <li>Provision the hub VNet, subnets, NSGs and ILB (Bicep / Terraform / portal).</li>
+    <li>Deploy two Windows Server 2022/2025 VMs into different Availability Zones in the WAC subnet.</li>
+    <li>Domain-join (or stay workgroup with Entra-only auth — both are supported).</li>
+    <li>Install WAC in <em>gateway server</em> mode with the certificate retrieved from Key Vault.</li>
+    <li>Add the ILB back-end pool entries and the TCP/443 health probe.</li>
+    <li>Configure Entra ID auth + Conditional Access + MFA for the WAC tenant app.</li>
+    <li>Open WAC → site flows (§4.3.1) from the WAC subnet only.</li>
+    <li>Test failover by stopping each VM in turn; the ILB should bring traffic to the survivor within seconds.</li>
+  </ol>
+  <div class="callout"><span class="tag">Note</span><div>Pattern B uses <strong>two independent VMs behind ILB</strong> rather than the WAC HA failover-cluster script. The HA failover-cluster pattern (Pattern A) is designed for on-prem failover clustering; in Azure, ILB-fronted active-passive across Availability Zones is the cleaner shape and supports all three run modes.</div></div>
+
+  <h3>6.5 Run modes</h3>
+  <p>Pattern B supports all three run modes from <a href="#runmodes">§4.2</a>:</p>
+  <ul class="tight">
+    <li><strong>Always-on HA</strong> — both VMs running 24×7. Recommended for estates with continuous operator demand.</li>
+    <li><strong>Cold-standby / JIT</strong> — VMs deallocated; started by an Automation runbook on operator request, alert or scheduled window. ~5–10 min RTO; pays only for storage at rest.</li>
+    <li><strong>Auto-shutdown nightly</strong> — only for non-production Tier 1 (e.g. a dedicated Dev/Test geography).</li>
+  </ul>
+  <div class="callout ok"><span class="tag">JIT for cost-aware estates</span><div>If WAC is used a few hours per day for change windows, Cold-standby / JIT often cuts Tier 1 compute cost by 80%+ while still giving operators a managed self-service path to start the gateway. The runbook can also auto-deallocate after a configurable idle period.</div></div>
+
+  <h3>6.6 Trade-offs</h3>
+  <table>
+    <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          <ul class="tight">
+            <li>Minimal on-prem management footprint (sites only need Tier 2 break-glass).</li>
+            <li>Native ARM-first ops: Bicep / Terraform deploy, Azure Backup, Key Vault, Azure Monitor.</li>
+            <li>Run-mode flexibility (Always-on / Cold-standby / JIT) for cost control.</li>
+            <li>Operator access path is Entra-fronted (Conditional Access, MFA, PIM).</li>
+          </ul>
+        </td>
+        <td>
+          <ul class="tight">
+            <li>Requires private connectivity (ER or S2S VPN) to every managed site.</li>
+            <li>Management traffic crosses the WAN into the site mgmt VLAN — coordinate with OT / network teams to scope flows.</li>
+            <li>Tier 1 is unreachable during ER/S2S outages or Azure regional events; the per-site break-glass (Tier 2) covers this.</li>
+            <li>Latency on chatty WinRM operations vs. on-prem (typically tens of ms over ER) — usually acceptable, occasionally noticeable on large cluster operations.</li>
+          </ul>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 7. PATTERN C -->
+<section id="patternC">
+  <h2><span class="pattern-tag c">Pattern C</span> 7. WAC in Azure portal (service)</h2>
+  <p>The in-portal WAC experience: an Azure portal blade running the WAC UI against Arc-enabled servers and Azure Local cluster nodes, with no WAC server to install, patch or run. Currently <strong>preview</strong> for Azure Local cluster nodes per Microsoft Learn. Per-site break-glass WAC at every site (§4.1) remains.</p>
+
+  <h3>7.1 Architecture</h3>
+  <div class="mermaid">
+flowchart LR
+  Op([":icon-operator: <b>Operator</b><br/>:icon-browser: portal.azure.com"]):::actor -- "HTTPS 443<br/>Entra + MFA + CA" --> P[":icon-azure: Azure portal<br/>WAC blade (preview for Azure Local)"]:::azure
+  P --> ARM[":icon-arm: Azure Resource Manager"]:::azure
+  ARM --> ARC[":icon-arc: Azure Arc"]:::azure
+  ARC -. "Arc agent (outbound only)" .-> N1[":icon-cluster: Azure Local node 1"]:::cluster
+  ARC -. "Arc agent (outbound only)" .-> N2[":icon-cluster: Azure Local node 2"]:::cluster
+  ARC -. "Arc agent (outbound only)" .-> N3[":icon-cluster: Azure Local node 3"]:::cluster
+  BG[":icon-warn: <b>Tier 2</b> break-glass<br/><i>per site, off by default</i>"]:::tier2
+  N1 -.- BG
+  N2 -.- BG
+  N3 -.- BG
+
+  classDef actor   fill:#fff,stroke:#0072c6,color:#003b6f,stroke-width:2px;
+  classDef azure   fill:#e6f3ff,stroke:#0072c6,color:#003b6f,stroke-width:1.5px;
+  classDef cluster fill:#f3e9ff,stroke:#5b2d91,color:#2e0e63,stroke-width:1.5px;
+  classDef tier2   fill:#fff4e0,stroke:#b15c00,color:#5a2e00,stroke-width:1.5px,stroke-dasharray:4 3;
+  </div>
+
+  <h3>7.2 Prerequisites</h3>
+  <ul class="tight">
+    <li>Azure Local cluster nodes Arc-enabled (this is true by default for Azure Local 23H2+).</li>
+    <li>Operator has the necessary Azure RBAC role on the Azure Local resource (typically Reader + a custom WAC role, or built-in roles such as Azure Connected Machine Resource Administrator depending on task).</li>
+    <li>Outbound from each node to the documented WAC and Arc endpoints (see §4.3 — Arc gateway is the recommended way to consolidate this list).</li>
+  </ul>
+
+  <h3>7.3 What works today vs. what to track</h3>
+  <p>Microsoft Learn documents the Azure Local cluster-node experience as <em>preview</em>. Treat the feature surface as a watch-list and revisit at each WAC release:</p>
+  <table>
+    <thead><tr><th>Capability</th><th>Status (as of doc date)</th></tr></thead>
+    <tbody>
+      <tr><td>Arc-server day-to-day (services, files, registry, PowerShell, events)</td><td>GA via the Arc-server WAC blade.</td></tr>
+      <tr><td>Azure Local cluster node management</td><td><span class="pill sec">Preview</span> per Microsoft Learn — feature parity with the on-prem gateway is still in flight.</td></tr>
+      <tr><td>Cluster Manager extension parity</td><td>Track the WAC release notes — extension version requirements differ between in-portal and on-prem (see §4.5).</td></tr>
+      <tr><td>VM management (Hyper-V tools)</td><td>Subset today; full toolset still in the on-prem gateway.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>7.4 Run modes</h3>
+  <p>N/A — this is a managed service. There is no Tier 1 VM to start, stop, deallocate or auto-shutdown. <strong>Tier 2 break-glass at every site is still required</strong> for outages where Azure / portal access is unavailable.</p>
+
+  <h3>7.5 Trade-offs</h3>
+  <table>
+    <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          <ul class="tight">
+            <li>Zero on-prem management footprint, zero Tier 1 patching, zero certificate lifecycle.</li>
+            <li>Native Entra + Conditional Access + RBAC + audit trail in the Azure activity log.</li>
+            <li>Operator UX matches the rest of the Azure portal.</li>
+          </ul>
+        </td>
+        <td>
+          <ul class="tight">
+            <li>Currently preview for Azure Local cluster nodes — not all WAC tools are at parity.</li>
+            <li>Full Azure dependency for the management plane during Azure / portal events; Tier 2 is the only fallback.</li>
+            <li>Site outbound to Azure must be intact; TLS inspection of those flows is unsupported (§4.3).</li>
+          </ul>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout sec"><span class="tag">When to revisit</span><div>Pattern C is a strong candidate to <em>become</em> the primary Tier 1 once it reaches GA for Azure Local cluster nodes and parity with the on-prem gateway. Until then, use it for Arc-server tasks and keep Pattern A or B as the primary surface.</div></div>
+</section>
+
+<!-- 8. DEV/TEST -->
+<section id="dev">
+  <h2>8. Dev/Test pattern</h2>
+  <p>One Windows Server VM (<em>not</em> a domain controller — installing WAC on a DC is unsupported). Local AD or Entra ID for auth. Self-signed cert acceptable for short-lived labs.</p>
+  <div class="grid cols-2">
+    <div class="card">
+      <h3 style="margin-top:0">Build</h3>
+      <ol class="tight">
+        <li>Provision Windows Server 2022/2025 VM (4 vCPU / 8 GB).</li>
+        <li>Domain-join to the lab AD (or workgroup).</li>
+        <li>Download the WAC installer from the Microsoft Evaluation Center.</li>
+        <li>Install in <em>gateway server</em> mode; bind to port 443.</li>
+        <li>Add lab admins to the <em>gateway administrators</em> group.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Parity vs. Production</h3>
+      <ul class="tight">
+        <li>Same WAC tools and extensions are available.</li>
+        <li>No HA / no failover — single point of failure (acceptable for lab).</li>
+        <li>Use a <em>different</em> Entra ID app registration than production.</li>
+        <li>Do not connect lab WAC to production Azure Local clusters.</li>
+        <li>Auto-shutdown nightly is appropriate here (see <a href="#runmodes">§4.2</a>).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 9. OPEN QUESTIONS -->
 <section id="openq">
-  <h2>12. Open questions for the customer</h2>
+  <h2>9. Open questions for the customer</h2>
   <div class="callout sec">
-    <span class="tag">We need answers to finalise Tier 2</span>
+    <span class="tag">Answers shape the chosen pattern and the Tier 2 build</span>
     <ol class="tight">
-      <li>Which specific OT control is being invoked when you say "OT security requires X"? Is it ISA/IEC 62443 zone separation, a site-specific change-control rule, or a regulatory interpretation? The Tier 2 build differs for each.</li>
-      <li>Does each site have its own AD, or is AD homed regionally? This decides how Tier 2 authenticates with no WAN.</li>
-      <li>Confirm ExpressRoute / WAN design: single-circuit per site, or dual? Tier 2 only justifies its existence under realistic single-failure scenarios.</li>
-      <li>Confirm enterprise PKI source for WAC certificates and rotation cadence.</li>
+      <li>Which pattern (A / B / C) is the target for Tier 1, and is that consistent across all geographies?</li>
+      <li>For Pattern B candidates: is private connectivity (ER or S2S VPN) in place to every managed site today? If not, when?</li>
+      <li>What OT / network control is being invoked (e.g. ISA/IEC 62443 zone separation, site-specific change-control rule, regulatory interpretation)? Tier 2 build differs for each.</li>
+      <li>Does each site have its own AD, or is AD homed regionally? Decides how Tier 2 authenticates with no WAN.</li>
+      <li>Confirm enterprise PKI source for WAC certificates and rotation cadence (and Key Vault use for Pattern B).</li>
       <li>Confirm site count per region (drives the Tier 2 fleet size and patch rota).</li>
       <li>Confirm whether Arc gateway will be enabled at <em>initial</em> Azure Local deployment (it cannot be added later).</li>
-      <li>Confirm operator workstation strategy (PAW vs. VDI vs. corp laptop) — affects browser-side firewall rules.</li>
+      <li>Confirm operator workstation strategy (PAW vs. VDI vs. Bastion vs. corp laptop) — affects browser-side firewall rules and the access path.</li>
+      <li>For Pattern B Cold-standby / JIT: who owns the start/stop runbook and the self-service URL?</li>
     </ol>
   </div>
 </section>
 
-<!-- 13. REFERENCES -->
+<!-- 10. REFERENCES -->
 <section id="refs">
-  <h2>13. References (Microsoft Learn)</h2>
+  <h2>10. References (Microsoft Learn)</h2>
   <ul class="tight">
     <li><a href="https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/overview">Windows Admin Center overview</a></li>
     <li><a href="https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/understand/what-is">What is Windows Admin Center?</a></li>
@@ -673,14 +851,22 @@ stateDiagram-v2
     <li><a href="https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/deploy/high-availability">Deploy WAC with high availability</a></li>
     <li><a href="https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/deploy/network-requirements">WAC — network requirements</a></li>
     <li><a href="https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/configure/user-access-control">WAC — configure user access control</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/azure/manage-vm">WAC in the Azure portal — manage Azure VMs</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/azure/manage-arc-hybrid-machine">WAC in the Azure portal — manage Arc-enabled servers</a></li>
     <li><a href="https://learn.microsoft.com/en-us/windows-server/manage/windows-admin-center/support/known-issues">WAC — known issues</a></li>
     <li><a href="https://learn.microsoft.com/en-us/azure/azure-local/concepts/firewall-requirements">Azure Local — firewall requirements</a></li>
     <li><a href="https://learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-azure-arc-gateway-overview">About Azure Arc gateway for Azure Local</a></li>
     <li><a href="https://learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-with-azure-arc-gateway">Register Azure Local machines with Azure Arc gateway</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-overview">Azure Load Balancer overview (used in Pattern B)</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/azure/bastion/bastion-overview">Azure Bastion overview (operator access path for Pattern B)</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/azure/key-vault/general/overview">Azure Key Vault overview (cert store for Pattern B)</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/azure/automation/automation-solution-vm-management">Start/Stop VMs during off-hours (run-mode automation)</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/azure/expressroute/expressroute-introduction">Azure ExpressRoute overview (Pattern B prereq)</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/azure/vpn-gateway/vpn-gateway-about-vpngateways">Azure VPN Gateway overview (Pattern B prereq)</a></li>
     <li><a href="https://aka.ms/WACHAScript">WAC HA deployment script (Deploy-GatewayV2Ha.zip)</a></li>
     <li><a href="https://www.microsoft.com/evalcenter/download-windows-admin-center">Download Windows Admin Center (Evaluation Center)</a></li>
   </ul>
-  <p class="footnote">All links resolved against Microsoft Learn at time of writing. No third-party or non-Microsoft sources are used.</p>
+  <p class="footnote">All links resolved against Microsoft Learn / Microsoft.com at time of writing. No third-party or non-Microsoft sources are used.</p>
 </section>
 
 <hr/>
@@ -691,8 +877,6 @@ stateDiagram-v2
 
 <script>
   // ---- Inline SVG icons for Mermaid node labels ----
-  // Use tokens like :icon-azure: inside Mermaid labels; they get replaced
-  // with small <img> tags (data URI, URL-encoded SVG — no external deps).
   const ICONS = {
     azure:    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 16' width='18' height='12' fill='#0072c6'><path d='M19 9.5a4 4 0 0 0-7.5-1.7A3.5 3.5 0 0 0 5 10a3.5 3.5 0 0 0 3.5 3.5h10a3 3 0 0 0 .5-6z'/></svg>`,
     arm:      `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='14' height='14' fill='#0072c6'><path d='M19.4 13a7.5 7.5 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L14.8 3h-4l-.5 2.6a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.5 7.5 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.5 2.6h4l.5-2.6a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4L19.4 13zM12.8 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z'/></svg>`,
@@ -755,7 +939,6 @@ stateDiagram-v2
       clusterBkg: 'transparent',
       clusterBorder: palette.line,
       edgeLabelBackground: isDark ? '#161b24' : '#ffffff',
-      // sequence diagram
       actorBkg: palette.azure,
       actorBorder: palette.azureBorder,
       actorTextColor: palette.azureText,
@@ -768,7 +951,6 @@ stateDiagram-v2
       noteBkgColor: palette.warn,
       noteBorderColor: palette.warnBorder,
       noteTextColor: palette.warnText,
-      // state diagram
       stateLabelColor: palette.fg,
       transitionColor: palette.line,
       transitionLabelColor: palette.fg
